@@ -1,6 +1,4 @@
 // src/server/index.js
-// Express server — serves the static frontend and the /api REST layer.
-
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -17,19 +15,14 @@ const __dirname  = dirname(__filename);
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));   // comparison payloads can be large
+app.use(express.json({ limit: '10mb' }));
 
-// ── Static frontend ───────────────────────────────────────────────────────────
-// Render's web service will serve index.html + assets from src/client/
 const CLIENT_DIR = join(__dirname, '../../src/client');
 app.use(express.static(CLIENT_DIR));
 
-// ── API routes ────────────────────────────────────────────────────────────────
 app.use('/api/results', resultsRouter);
 
-// ── Health check (used by Render) ─────────────────────────────────────────────
 app.get('/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -39,12 +32,35 @@ app.get('/health', async (_req, res) => {
   }
 });
 
-// ── SPA fallback — serve index.html for any non-API route ────────────────────
 app.get('*', (_req, res) => {
   res.sendFile(join(CLIENT_DIR, 'index.html'));
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// Auto-create table on every startup (safe — uses IF NOT EXISTS)
+async function initDb() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS prompt_results (
+        id             TEXT        PRIMARY KEY,
+        prompt_number  INTEGER     NOT NULL,
+        title          TEXT        NOT NULL DEFAULT '',
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        prompt         TEXT        NOT NULL,
+        threshold      INTEGER     NOT NULL DEFAULT 60,
+        metrics        JSONB       NOT NULL DEFAULT '{}',
+        comparison     JSONB       NOT NULL DEFAULT '[]'
+      );
+      CREATE INDEX IF NOT EXISTS idx_prompt_results_created_at
+        ON prompt_results (created_at);
+    `);
+    console.log('✅  DB table ready.');
+  } catch (err) {
+    console.error('❌  DB init error:', err.message);
+  }
+}
+
+await initDb();
+
 app.listen(PORT, () => {
   console.log(`✅  Server running on http://localhost:${PORT}`);
   console.log(`   NODE_ENV  : ${process.env.NODE_ENV || 'development'}`);
