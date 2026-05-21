@@ -65,7 +65,7 @@ window.Parse = (() => {
   }
 
   // ── CSV ───────────────────────────────────────────────────────────────────
-  function parseCsvLine(line) {
+  function parseCsvLine(line, delim = ',') {
     const cells = [];
     let cur = '';
     let inQuotes = false;
@@ -80,7 +80,7 @@ window.Parse = (() => {
         }
         continue;
       }
-      if (ch === ',' && !inQuotes) {
+      if (ch === delim && !inQuotes) {
         cells.push(cur.trim());
         cur = '';
         continue;
@@ -91,6 +91,35 @@ window.Parse = (() => {
     return cells;
   }
 
+  function countDelimiter(line, delim) {
+    let count = 0;
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') i++;
+        else inQuotes = !inQuotes;
+      } else if (ch === delim && !inQuotes) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  function detectDelimiter(line) {
+    const candidates = [',', ';', '\t', '|'];
+    let best = ',';
+    let bestCount = -1;
+    for (const d of candidates) {
+      const c = countDelimiter(line, d);
+      if (c > bestCount) {
+        best = d;
+        bestCount = c;
+      }
+    }
+    return best;
+  }
+
   function pick(obj, keys) {
     for (const k of keys) {
       if (obj[k]) return obj[k];
@@ -99,11 +128,13 @@ window.Parse = (() => {
   }
 
   function csv(text) {
-    const lines  = text.trim().split(/\r?\n/);
+    const cleaned = text.replace(/^\uFEFF/, '').trim();
+    const lines  = cleaned.split(/\r?\n/);
     if (lines.length < 2) return [];
-    const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
+    const delim = detectDelimiter(lines[0]);
+    const header = parseCsvLine(lines[0], delim).map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
     return lines.slice(1).map(line => {
-      const vals = parseCsvLine(line);
+      const vals = parseCsvLine(line, delim);
       const obj  = {};
       header.forEach((h, i) => { obj[h] = (vals[i] || '').trim().replace(/^"|"$/g,''); });
       return {
