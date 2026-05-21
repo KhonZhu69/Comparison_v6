@@ -42,12 +42,16 @@ window.Parse = (() => {
   function parseDocxXML(xmlStr) {
     const parser = new DOMParser();
     const doc    = parser.parseFromString(xmlStr, 'application/xml');
+    if (doc.querySelector('parsererror')) {
+      throw new Error('DOCX XML could not be parsed.');
+    }
     const rows   = [];
-    const trs    = doc.querySelectorAll('tr');
+    const trs    = [...doc.getElementsByTagName('*')].filter(n => n.localName === 'tr');
     let isFirst  = true;
     trs.forEach(tr => {
-      const cells = [...tr.querySelectorAll('tc')].map(tc =>
-        [...tc.querySelectorAll('t')].map(t => t.textContent).join('').trim()
+      const tcs = [...tr.getElementsByTagName('*')].filter(n => n.localName === 'tc');
+      const cells = tcs.map(tc =>
+        [...tc.getElementsByTagName('*')].filter(n => n.localName === 't').map(t => t.textContent).join('').trim()
       );
       if (!cells.length) return;
       if (isFirst) { isFirst = false; return; }   // skip header row
