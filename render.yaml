@@ -1,0 +1,25 @@
+# render.yaml
+# Deploy this repo to Render with one click.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: extraction-comparator
+    runtime: node
+    plan: free                       # change to "starter" for always-on
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: extraction-comparator-db
+          property: connectionString
+
+databases:
+  - name: extraction-comparator-db
+    plan: free                       # Render Free Postgres (90-day limit; upgrade for prod)
+    databaseName: extraction_comparator
+    user: kg_user

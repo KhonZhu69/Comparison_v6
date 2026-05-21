@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Extraction Comparator — Prompt Results Database</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">KG</div>
+  <div>
+    <div class="header-title">Extraction Comparator</div>
+    <div class="header-sub">Manual DOCX vs LLM CSV — Prompt testing database</div>
+  </div>
+  <div id="dbStatus" class="db-status wait"><span class="db-dot"></span>Connecting…</div>
+  <span class="header-badge">Saved Results: <span id="headerSavedCount">0</span></span>
+</div>
+
+<div class="main">
+
+  <!-- ── Upload zone ── -->
+  <div class="upload-grid">
+    <label class="upload-card" id="docxZone">
+      <div class="upload-icon manual">M</div>
+      <div class="upload-text">
+        <div class="label">Manual Extraction DOCX</div>
+        <div class="desc">Upload manual facts table with Fact ID, Relationship, Representation and Type columns.</div>
+        <div class="filename" id="docxName">No file selected — click to browse</div>
+        <div class="format">Accepted: .docx</div>
+      </div>
+      <input type="file" id="docxInput" accept=".docx,.doc" />
+    </label>
+    <label class="upload-card" id="csvZone">
+      <div class="upload-icon llm">L</div>
+      <div class="upload-text">
+        <div class="label">LLM Output CSV / Neo4j</div>
+        <div class="desc">Upload Neo4j knowledge graph output with source → relation → target triples.</div>
+        <div class="filename" id="csvName">No file selected — click to browse</div>
+        <div class="format">Accepted: .csv</div>
+      </div>
+      <input type="file" id="csvInput" accept=".csv" />
+    </label>
+  </div>
+
+  <!-- ── Prompt input ── -->
+  <div class="prompt-card">
+    <label for="promptText">Prompt used for this test</label>
+    <textarea id="promptText" placeholder="Paste the exact prompt you tested here. This will be saved with the comparison result."></textarea>
+    <div class="small-note">Results are stored in a PostgreSQL database on Render — accessible from any device.</div>
+  </div>
+
+  <!-- ── Controls ── -->
+  <div class="controls">
+    <button class="btn-primary" id="runBtn" disabled>Run Comparison</button>
+    <button class="btn-primary" id="saveBtn" disabled>Save Result</button>
+    <button class="btn-outline" id="exportBtn">Export JSON</button>
+    <button class="btn-outline" id="resetBtn">Reset Current Test</button>
+    <button class="btn-danger"  id="clearDbBtn">Clear Database</button>
+    <div class="threshold-wrap">
+      <span>Match threshold:</span>
+      <input type="range" id="threshold" min="30" max="90" value="60" step="5" />
+      <span class="threshold-val" id="thresholdVal">60%</span>
+    </div>
+  </div>
+
+  <!-- ── Metrics ── -->
+  <div class="metrics-grid">
+    <div class="metric-card"><div class="metric-label">Precision</div><div class="metric-val" id="mPrec">—</div><div class="metric-bar-wrap"><div class="metric-bar" id="bPrec"></div></div><div class="metric-sub">TP / (TP + FP)</div></div>
+    <div class="metric-card"><div class="metric-label">Recall</div><div class="metric-val" id="mRec">—</div><div class="metric-bar-wrap"><div class="metric-bar" id="bRec"></div></div><div class="metric-sub">TP / (TP + FN)</div></div>
+    <div class="metric-card"><div class="metric-label">F1 Score</div><div class="metric-val" id="mF1">—</div><div class="metric-bar-wrap"><div class="metric-bar" id="bF1"></div></div><div class="metric-sub">2 · P · R / (P + R)</div></div>
+    <div class="metric-card"><div class="metric-label">Accuracy</div><div class="metric-val" id="mAcc">—</div><div class="metric-bar-wrap"><div class="metric-bar" id="bAcc"></div></div><div class="metric-sub">Correct / Total manual</div></div>
+  </div>
+
+  <!-- ── Tabs ── -->
+  <div class="tabs">
+    <div class="tab active" data-tab="comparison">Current Comparison <span class="tab-badge" id="badgeComp">0</span></div>
+    <div class="tab" data-tab="results">Saved Prompt Results <span class="tab-badge" id="badgeSaved">0</span></div>
+    <div class="tab" data-tab="details">Comparison Dropdown</div>
+    <div class="tab" data-tab="charts">Charts</div>
+    <div class="tab" data-tab="manual">Manual <span class="tab-badge" id="badgeManual">0</span></div>
+    <div class="tab" data-tab="llm">LLM <span class="tab-badge" id="badgeLLM">0</span></div>
+  </div>
+
+  <!-- ── Panel: Current comparison ── -->
+  <div class="panel active" id="panel-comparison">
+    <div class="filters">
+      <div class="search-box"><input type="text" id="searchInput" placeholder="Search entities, relations…" /></div>
+      <button class="filter-btn active-f" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="match">✓ Match</button>
+      <button class="filter-btn" data-filter="partial">~ Partial</button>
+      <button class="filter-btn" data-filter="miss">✗ Miss</button>
+    </div>
+    <div class="status-bar" id="statusBar"></div>
+    <div id="compTableWrap"><div class="empty">Upload both files, paste the prompt, then run comparison.</div></div>
+  </div>
+
+  <!-- ── Panel: Saved results ── -->
+  <div class="panel" id="panel-results">
+    <div id="savedResultsWrap"></div>
+  </div>
+
+  <!-- ── Panel: Dropdown detail ── -->
+  <div class="panel" id="panel-details">
+    <div class="detail-grid">
+      <div class="prompt-card" style="margin-bottom:0">
+        <label for="resultSelect">Select saved prompt result</label>
+        <select id="resultSelect"><option value="">No saved results yet</option></select>
+        <div class="small-note">Open the saved comparison table for any prompt test.</div>
+      </div>
+      <div id="selectedResultInfo"><div class="empty">Choose a saved result to view its actual comparison.</div></div>
+    </div>
+    <div style="margin-top:16px" id="selectedComparisonWrap"></div>
+  </div>
+
+  <!-- ── Panel: Charts ── -->
+  <div class="panel" id="panel-charts">
+    <div class="charts-grid">
+      <div class="chart-card"><div class="chart-title">Current Match Distribution</div><div class="chart-area"><canvas id="chartDist"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Current Precision · Recall · F1 · Accuracy</div><div class="chart-area"><canvas id="chartMetrics"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- ── Panel: Manual preview ── -->
+  <div class="panel" id="panel-manual">
+    <div id="manualTableWrap"><div class="empty">Upload a DOCX file to preview manual extraction.</div></div>
+  </div>
+
+  <!-- ── Panel: LLM preview ── -->
+  <div class="panel" id="panel-llm">
+    <div id="llmTableWrap"><div class="empty">Upload a CSV file to preview LLM output.</div></div>
+  </div>
+
+</div><!-- /.main -->
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/parse.js"></script>
+<script src="/js/compare.js"></script>
+<script src="/js/render.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
