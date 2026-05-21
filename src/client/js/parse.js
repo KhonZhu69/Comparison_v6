@@ -65,15 +65,53 @@ window.Parse = (() => {
   }
 
   // ── CSV ───────────────────────────────────────────────────────────────────
+  function parseCsvLine(line) {
+    const cells = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+      if (ch === ',' && !inQuotes) {
+        cells.push(cur.trim());
+        cur = '';
+        continue;
+      }
+      cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  function pick(obj, keys) {
+    for (const k of keys) {
+      if (obj[k]) return obj[k];
+    }
+    return '';
+  }
+
   function csv(text) {
     const lines  = text.trim().split(/\r?\n/);
     if (lines.length < 2) return [];
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
+    const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
     return lines.slice(1).map(line => {
-      const vals = line.split(',');
+      const vals = parseCsvLine(line);
       const obj  = {};
       header.forEach((h, i) => { obj[h] = (vals[i] || '').trim().replace(/^"|"$/g,''); });
-      return obj;
+      return {
+        ...obj,
+        source: pick(obj, ['source', 'from', 'subject', 'start', 'start_node', 'source_node']),
+        relation: pick(obj, ['relation', 'relationship', 'predicate', 'type', 'edge', 'rel', 'relation_type']),
+        target: pick(obj, ['target', 'to', 'object', 'end', 'end_node', 'target_node'])
+      };
     }).filter(r => r.source || r.relation || r.target);
   }
 
