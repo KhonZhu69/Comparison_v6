@@ -6,33 +6,28 @@
 window.Parse = (() => {
 
   // ── DOCX ──────────────────────────────────────────────────────────────────
-  // DOCX files are ZIP archives; we unzip them in JS to read word/document.xml.
-
   async function readZip(ab) {
     const bytes = new Uint8Array(ab);
     const files = {};
     let i = 0;
     while (i < bytes.length - 4) {
       if (bytes[i]!==0x50||bytes[i+1]!==0x4B||bytes[i+2]!==0x03||bytes[i+3]!==0x04) { i++; continue; }
-      const flags         = bytes[i+6]  | (bytes[i+7]  << 8);
-      const compression   = bytes[i+8]  | (bytes[i+9]  << 8);
-      const fnLen         = bytes[i+26] | (bytes[i+27] << 8);
-      const extraLen      = bytes[i+28] | (bytes[i+29] << 8);
-      const compressedSize= bytes[i+18] | (bytes[i+19]<<8) | (bytes[i+20]<<16) | (bytes[i+21]<<24);
-      const headerEnd     = i + 30 + fnLen + extraLen;
-      const fnBytes       = bytes.slice(i+30, i+30+fnLen);
-      const filename      = new TextDecoder().decode(fnBytes);
-      const dataEnd       = headerEnd + compressedSize;
+      const fnLen          = bytes[i+26] | (bytes[i+27] << 8);
+      const extraLen       = bytes[i+28] | (bytes[i+29] << 8);
+      const compression    = bytes[i+8]  | (bytes[i+9]  << 8);
+      const compressedSize = bytes[i+18] | (bytes[i+19]<<8) | (bytes[i+20]<<16) | (bytes[i+21]<<24);
+      const headerEnd      = i + 30 + fnLen + extraLen;
+      const filename       = new TextDecoder().decode(bytes.slice(i+30, i+30+fnLen));
+      const dataEnd        = headerEnd + compressedSize;
       if (compression === 0) {
         files[filename] = new TextDecoder('utf-8').decode(bytes.slice(headerEnd, dataEnd));
       } else if (compression === 8) {
         try {
-          const raw = bytes.slice(headerEnd, dataEnd);
-          const ds  = new DecompressionStream('deflate-raw');
-          const writer = ds.writable.getWriter(); writer.write(raw); writer.close();
+          const ds = new DecompressionStream('deflate-raw');
+          const writer = ds.writable.getWriter(); writer.write(bytes.slice(headerEnd, dataEnd)); writer.close();
           const out = await new Response(ds.readable).arrayBuffer();
           files[filename] = new TextDecoder('utf-8').decode(out);
-        } catch { /* skip unreadable entries */ }
+        } catch { /* skip */ }
       }
       i = dataEnd || i + 1;
     }
@@ -40,21 +35,15 @@ window.Parse = (() => {
   }
 
   function parseDocxXML(xmlStr) {
-    const parser = new DOMParser();
-    const doc    = parser.parseFromString(xmlStr, 'application/xml');
-    if (doc.querySelector('parsererror')) {
-      throw new Error('DOCX XML could not be parsed.');
-    }
-    const rows   = [];
-    const trs    = [...doc.getElementsByTagName('*')].filter(n => n.localName === 'tr');
-    let isFirst  = true;
-    trs.forEach(tr => {
-      const tcs = [...tr.getElementsByTagName('*')].filter(n => n.localName === 'tc');
-      const cells = tcs.map(tc =>
-        [...tc.getElementsByTagName('*')].filter(n => n.localName === 't').map(t => t.textContent).join('').trim()
+    const doc   = new DOMParser().parseFromString(xmlStr, 'application/xml');
+    const rows  = [];
+    let isFirst = true;
+    doc.querySelectorAll('tr').forEach(tr => {
+      const cells = [...tr.querySelectorAll('tc')].map(tc =>
+        [...tc.querySelectorAll('t')].map(t => t.textContent).join('').trim()
       );
       if (!cells.length) return;
-      if (isFirst) { isFirst = false; return; }   // skip header row
+      if (isFirst) { isFirst = false; return; }
       const [id='', fact='', relId='', relRep='', relType=''] = cells;
       rows.push({ id, fact, relId, relRep, relType });
     });
@@ -69,84 +58,66 @@ window.Parse = (() => {
   }
 
   // ── CSV ───────────────────────────────────────────────────────────────────
-  function parseCsvLine(line, delim = ',') {
-    const cells = [];
-    let cur = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-        continue;
-      }
-      if (ch === delim && !inQuotes) {
-        cells.push(cur.trim());
-        cur = '';
-        continue;
-      }
-      cur += ch;
-    }
-    cells.push(cur.trim());
-    return cells;
+  // Detects two formats:
+  //   1. Standard tabular CSV with headers: source, source_type, relation, target, target_type
+  //   2. Neo4j path export — single column "p" with rows like:
+  //      (:Label {name: X, type: Y})-[:REL {kind: Z}]->(:Label {name: A, type: B})
+
+  function parseNeo4jNode(block) {
+    const name = block.match(/name:\s*([^,}]+)/);
+    const type = block.match(/\btype:\s*([^,}]+)/);
+    return {
+      name: name ? name[1].trim() : '',
+      type: type ? type[1].trim() : '',
+    };
   }
 
-  function countDelimiter(line, delim) {
-    let count = 0;
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') i++;
-        else inQuotes = !inQuotes;
-      } else if (ch === delim && !inQuotes) {
-        count++;
-      }
-    }
-    return count;
+  function parseNeo4jRel(block) {
+    const kind    = block.match(/kind:\s*([^,}]+)/);
+    const relType = block.match(/\[:(\w+)/);
+    return kind ? kind[1].trim() : (relType ? relType[1].trim() : '');
   }
 
-  function detectDelimiter(line) {
-    const candidates = [',', ';', '\t', '|'];
-    let best = ',';
-    let bestCount = -1;
-    for (const d of candidates) {
-      const c = countDelimiter(line, d);
-      if (c > bestCount) {
-        best = d;
-        bestCount = c;
-      }
-    }
-    return best;
-  }
-
-  function pick(obj, keys) {
-    for (const k of keys) {
-      if (obj[k]) return obj[k];
-    }
-    return '';
+  function parseNeo4jPath(line) {
+    // Pull all node blocks (...) and relationship blocks [...]
+    const nodeBlocks = [...line.matchAll(/\(([^)]+)\)/g)].map(m => m[1]);
+    const relBlocks  = [...line.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
+    if (nodeBlocks.length < 2 || relBlocks.length < 1) return null;
+    const src = parseNeo4jNode(nodeBlocks[0]);
+    const tgt = parseNeo4jNode(nodeBlocks[nodeBlocks.length - 1]);
+    const rel = parseNeo4jRel(relBlocks[0]);
+    if (!src.name && !tgt.name) return null;
+    return { source: src.name, source_type: src.type, relation: rel, target: tgt.name, target_type: tgt.type };
   }
 
   function csv(text) {
-    const cleaned = text.replace(/^\uFEFF/, '').trim();
-    const lines  = cleaned.split(/\r?\n/);
+    const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) return [];
-    const delim = detectDelimiter(lines[0]);
-    const header = parseCsvLine(lines[0], delim).map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
+
+    const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+
+    // ── Neo4j path format (single column "p") ─────────────────────────────
+    if (header.length === 1 && header[0] === 'p') {
+      return lines.slice(1)
+        .map(line => parseNeo4jPath(line.replace(/^"|"$/g, '')))
+        .filter(Boolean);
+    }
+
+    // ── Standard tabular CSV ───────────────────────────────────────────────
     return lines.slice(1).map(line => {
-      const vals = parseCsvLine(line, delim);
-      const obj  = {};
-      header.forEach((h, i) => { obj[h] = (vals[i] || '').trim().replace(/^"|"$/g,''); });
-      return {
-        ...obj,
-        source: pick(obj, ['source', 'from', 'subject', 'start', 'start_node', 'source_node']),
-        relation: pick(obj, ['relation', 'relationship', 'predicate', 'type', 'edge', 'rel', 'relation_type']),
-        target: pick(obj, ['target', 'to', 'object', 'end', 'end_node', 'target_node'])
-      };
+      // Handle quoted fields that may contain commas
+      const vals = [];
+      let cur = '', inQ = false;
+      for (const ch of line) {
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
+        else { cur += ch; }
+      }
+      vals.push(cur.trim());
+
+      const obj = {};
+      header.forEach((h, i) => { obj[h] = (vals[i] || '').replace(/^"|"$/g, '').trim(); });
+      return obj;
     }).filter(r => r.source || r.relation || r.target);
   }
 
