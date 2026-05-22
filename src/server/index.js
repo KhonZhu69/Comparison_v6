@@ -26,36 +26,35 @@ app.get('/health', async (_req, res) => {
 
 app.get('*', (_req, res) => res.sendFile(join(CLIENT_DIR, 'index.html')));
 
-// Auto-create table on startup — adds new columns if they don't exist yet
+// Run each migration separately so one failure doesn't block the rest
 async function initDb() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS prompt_results (
-        id             TEXT        PRIMARY KEY,
-        prompt_number  TEXT        NOT NULL,
-        title          TEXT        NOT NULL DEFAULT '',
-        paper_name     TEXT        NOT NULL DEFAULT '',
-        model_name     TEXT        NOT NULL DEFAULT '',
-        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        prompt         TEXT        NOT NULL,
-        threshold      INTEGER     NOT NULL DEFAULT 60,
-        metrics        JSONB       NOT NULL DEFAULT '{}',
-        comparison     JSONB       NOT NULL DEFAULT '[]'
-      );
-      ALTER TABLE prompt_results ADD COLUMN IF NOT EXISTS paper_name TEXT NOT NULL DEFAULT '';
-      ALTER TABLE prompt_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT '';
-      ALTER TABLE prompt_results ALTER COLUMN prompt_number TYPE TEXT USING prompt_number::TEXT;
-      CREATE INDEX IF NOT EXISTS idx_prompt_results_created_at ON prompt_results (created_at);
-    `);
-    console.log('✅  DB table ready.');
-  } catch (err) {
-    console.error('❌  DB init error:', err.message);
+  const steps = [
+    `CREATE TABLE IF NOT EXISTS prompt_results (
+      id             TEXT        PRIMARY KEY,
+      prompt_number  TEXT        NOT NULL DEFAULT '',
+      title          TEXT        NOT NULL DEFAULT '',
+      paper_name     TEXT        NOT NULL DEFAULT '',
+      model_name     TEXT        NOT NULL DEFAULT '',
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      prompt         TEXT        NOT NULL DEFAULT '',
+      threshold      INTEGER     NOT NULL DEFAULT 60,
+      metrics        JSONB       NOT NULL DEFAULT '{}',
+      comparison     JSONB       NOT NULL DEFAULT '[]'
+    )`,
+    `ALTER TABLE prompt_results ADD COLUMN IF NOT EXISTS paper_name TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE prompt_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT ''`,
+    `CREATE INDEX IF NOT EXISTS idx_prompt_results_created_at ON prompt_results (created_at)`,
+  ];
+
+  for (const sql of steps) {
+    try { await pool.query(sql); }
+    catch (err) { console.warn('DB migration warning:', err.message); }
   }
+  console.log('✅  DB ready.');
 }
 
 await initDb();
 app.listen(PORT, () => {
   console.log(`✅  Server running on http://localhost:${PORT}`);
-  console.log(`   NODE_ENV : ${process.env.NODE_ENV || 'development'}`);
-  console.log(`   DB       : ${process.env.DATABASE_URL ? 'connected' : 'NOT SET'}`);
+  console.log(`   DB: ${process.env.DATABASE_URL ? 'URL set' : 'NOT SET'}`);
 });
