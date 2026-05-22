@@ -45,10 +45,26 @@
     </label>
   </div>
 
-  <!-- ── Prompt input ── -->
+  <!-- ── Test info ── -->
   <div class="prompt-card">
-    <label for="promptText">Prompt used for this test</label>
-    <textarea id="promptText" placeholder="Paste the exact prompt you tested here. This will be saved with the comparison result."></textarea>
+    <div class="test-info-grid">
+      <div>
+        <label for="inputPromptNumber">Prompt Number</label>
+        <input type="text" id="inputPromptNumber" placeholder="e.g. 1, 2, 3…" />
+      </div>
+      <div>
+        <label for="inputPaperName">Research Paper Name</label>
+        <input type="text" id="inputPaperName" placeholder="e.g. Fishing Community Lifestyle Study" />
+      </div>
+      <div>
+        <label for="inputModelName">Model Used</label>
+        <input type="text" id="inputModelName" placeholder="e.g. GPT-4o, Claude 3.5, Gemini 1.5…" />
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <label for="promptText">Prompt used for this test</label>
+      <textarea id="promptText" placeholder="Paste the exact prompt you tested here. This will be saved with the comparison result."></textarea>
+    </div>
     <div class="small-note">Results are stored in a PostgreSQL database on Render — accessible from any device.</div>
   </div>
 
@@ -58,7 +74,7 @@
     <button class="btn-primary" id="saveBtn" disabled>Save Result</button>
     <button class="btn-outline" id="exportBtn">Export JSON</button>
     <button class="btn-outline" id="resetBtn">Reset Current Test</button>
-    <button class="btn-danger"  id="clearDbBtn">Clear Database</button>
+    <!-- <button class="btn-danger"  id="clearDbBtn">Clear Database</button> -->
     <div class="threshold-wrap">
       <span>Match threshold:</span>
       <input type="range" id="threshold" min="30" max="90" value="60" step="5" />
@@ -94,7 +110,7 @@
       <button class="filter-btn" data-filter="miss">✗ Miss</button>
     </div>
     <div class="status-bar" id="statusBar"></div>
-    <div id="compTableWrap"><div class="empty">Upload both files, paste the prompt, then run comparison.</div></div>
+    <div id="compTableWrap"><div class="empty">Upload both files, fill in the test info above, then run comparison.</div></div>
   </div>
 
   <!-- ── Panel: Saved results ── -->
@@ -135,7 +151,6 @@
 
 </div><!-- /.main -->
 
-<!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script src="/js/api.js"></script>

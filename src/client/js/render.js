@@ -1,12 +1,8 @@
 // src/client/js/render.js
-// All DOM-rendering helpers.  Pure functions — no state, no API calls.
-// Exposes: window.Render.*
-
 window.Render = (() => {
 
   const charts = {};
 
-  // ── Utility ────────────────────────────────────────────────────────────────
   function esc(s) {
     return (s||'').toString()
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -16,8 +12,17 @@ window.Render = (() => {
   function miniStat(label, val) {
     return `<div class="mini-stat">${label}<strong>${(val*100).toFixed(1)}%</strong></div>`;
   }
+  function infoBadges(r) {
+    return `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span class="info-tag">📄 ${esc(r.paperName||'—')}</span>
+        <span class="info-tag">🤖 ${esc(r.modelName||'—')}</span>
+        <span class="info-tag">📅 ${formatDate(r.createdAt)}</span>
+        <span class="info-tag">Threshold ${r.threshold}%</span>
+        <span class="info-tag">${r.metrics.manualCount} manual · ${r.metrics.llmCount} LLM</span>
+      </div>`;
+  }
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
   function toast(msg, type = 'success') {
     const el = document.getElementById('toast');
     el.textContent = msg;
@@ -26,7 +31,6 @@ window.Render = (() => {
     el._t = setTimeout(() => { el.className = 'toast'; }, 3000);
   }
 
-  // ── DB status badge ────────────────────────────────────────────────────────
   function dbStatus(state) {
     const el = document.getElementById('dbStatus');
     if (state === 'ok')   { el.className = 'db-status ok';   el.innerHTML = '<span class="db-dot"></span>DB connected'; }
@@ -34,7 +38,6 @@ window.Render = (() => {
     if (state === 'wait') { el.className = 'db-status wait'; el.innerHTML = '<span class="db-dot"></span>Connecting…'; }
   }
 
-  // ── Metric cards ──────────────────────────────────────────────────────────
   function metricCards(m) {
     setMetric('Prec', m.precision);
     setMetric('Rec',  m.recall);
@@ -55,7 +58,6 @@ window.Render = (() => {
     bar.style.background = val>=.75?'var(--accent)':val>=.45?'var(--warn)':'var(--danger)';
   }
 
-  // ── Comparison table ───────────────────────────────────────────────────────
   function compTable(rows) {
     if (!rows.length) {
       document.getElementById('compTableWrap').innerHTML = '<div class="empty">No results match your filter.</div>';
@@ -75,10 +77,10 @@ window.Render = (() => {
         : r.status==='partial'
           ? '<span class="pill pill-partial">~ Partial</span>'
           : '<span class="pill pill-miss">✗ Miss</span>';
-      const mCell  = mParts
+      const mCell = mParts
         ? `<strong>${esc(mParts[1].trim())}</strong><span class="arrow">→</span><span class="rel-tag">${esc(mParts[2].trim())}</span><span class="arrow">→</span><strong>${esc(mParts[3].trim())}</strong><div class="triple-text">${esc((r.manual.fact||'').substring(0,120))}${(r.manual.fact||'').length>120?'…':''}</div>`
         : `<div class="triple-text">${esc(r.manual.fact)}</div>`;
-      const lCell  = r.llm
+      const lCell = r.llm
         ? `<strong>${esc(r.llm.source)}</strong><span class="arrow">→</span><span class="rel-tag">${esc(r.llm.relation)}</span><span class="arrow">→</span><strong>${esc(r.llm.target)}</strong><div><span class="entity-tag">${esc(r.llm.source_type)}</span></div>`
         : '<span style="color:var(--muted);font-size:12px">No match found</span>';
       html += `<tr>
@@ -93,7 +95,6 @@ window.Render = (() => {
     return html;
   }
 
-  // ── Manual / LLM preview tables ───────────────────────────────────────────
   function manualTable(data) {
     if (!data.length) return;
     let html = `<div class="table-wrap"><table><thead><tr>
@@ -137,8 +138,8 @@ window.Render = (() => {
 
   // ── Saved results list ────────────────────────────────────────────────────
   function savedResultsList(results) {
-    document.getElementById('badgeSaved').textContent         = results.length;
-    document.getElementById('headerSavedCount').textContent   = results.length;
+    document.getElementById('badgeSaved').textContent       = results.length;
+    document.getElementById('headerSavedCount').textContent = results.length;
     const wrap = document.getElementById('savedResultsWrap');
     if (!results.length) {
       wrap.innerHTML = '<div class="empty">No prompt results saved yet.</div>';
@@ -146,8 +147,8 @@ window.Render = (() => {
     }
     wrap.innerHTML = results.map(r => `
       <div class="result-card">
-        <div class="result-title">Prompt ${r.promptNumber} - results</div>
-        <div class="result-meta">Saved ${formatDate(r.createdAt)} · Threshold ${r.threshold}% · ${r.metrics.manualCount} manual rows · ${r.metrics.llmCount} LLM triples</div>
+        <div class="result-title">Prompt ${esc(r.promptNumber)}</div>
+        ${infoBadges(r)}
         <div class="result-line">
           ${miniStat('Accuracy',  r.metrics.accuracy)}
           ${miniStat('F1 Score',  r.metrics.f1)}
@@ -156,7 +157,7 @@ window.Render = (() => {
         </div>
         <div class="prompt-preview">${esc(r.prompt)}</div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn-outline" onclick="App.openSavedResult('${r.id}')">View actual comparison</button>
+          <button class="btn-outline" onclick="App.openSavedResult('${r.id}')">View comparison</button>
           <button class="btn-danger"  onclick="App.deleteSavedResult('${r.id}')">Delete</button>
         </div>
       </div>`).join('');
@@ -171,7 +172,7 @@ window.Render = (() => {
     }
     select.innerHTML = '<option value="">Select a prompt result</option>' +
       results.map(r =>
-        `<option value="${r.id}">Prompt ${r.promptNumber} – Accuracy ${(r.metrics.accuracy*100).toFixed(1)}%, F1 ${(r.metrics.f1*100).toFixed(1)}%</option>`
+        `<option value="${r.id}">Prompt ${esc(r.promptNumber)} — ${esc(r.paperName||'?')} — ${esc(r.modelName||'?')} — Acc ${(r.metrics.accuracy*100).toFixed(1)}%</option>`
       ).join('');
   }
 
@@ -179,8 +180,9 @@ window.Render = (() => {
   function savedResultDetail(r) {
     document.getElementById('selectedResultInfo').innerHTML = `
       <div class="result-card" style="margin-bottom:0">
-        <div class="result-title">Prompt ${r.promptNumber} - results</div>
-        <div class="result-meta">Accuracy ${(r.metrics.accuracy*100).toFixed(1)}% · F1 ${(r.metrics.f1*100).toFixed(1)}% · Recall ${(r.metrics.recall*100).toFixed(1)}% · Precision ${(r.metrics.precision*100).toFixed(1)}%</div>
+        <div class="result-title">Prompt ${esc(r.promptNumber)}</div>
+        ${infoBadges(r)}
+        <div class="result-meta" style="margin-bottom:8px">Acc ${(r.metrics.accuracy*100).toFixed(1)}% · F1 ${(r.metrics.f1*100).toFixed(1)}% · Recall ${(r.metrics.recall*100).toFixed(1)}% · Precision ${(r.metrics.precision*100).toFixed(1)}%</div>
         <div class="prompt-preview">${esc(r.prompt)}</div>
       </div>`;
     document.getElementById('selectedComparisonWrap').innerHTML = buildCompTable(r.comparison);
@@ -210,7 +212,6 @@ window.Render = (() => {
     });
   }
 
-  // ── Tab switching ─────────────────────────────────────────────────────────
   function activateTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -220,7 +221,6 @@ window.Render = (() => {
   return {
     toast, dbStatus, metricCards, compTable, buildCompTable,
     manualTable, llmTable, savedResultsList, resultDropdown,
-    savedResultDetail, renderCharts, destroyChart, activateTab,
-    esc,
+    savedResultDetail, renderCharts, destroyChart, activateTab, esc,
   };
 })();

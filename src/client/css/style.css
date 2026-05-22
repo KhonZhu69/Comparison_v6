@@ -141,3 +141,11 @@ tr:hover td { background:#fafaf8; }
   .header { padding:14px 16px; }
   .threshold-wrap { margin-left:0; }
 }
+
+/* ── Test info grid (prompt number / paper / model) ── */
+.test-info-grid { display:grid; grid-template-columns:1fr 2fr 1fr; gap:12px; margin-bottom:4px; }
+.test-info-grid label { font-size:13px; font-weight:700; display:block; margin-bottom:6px; }
+.test-info-grid input { width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; background:#fff; color:var(--text); }
+.test-info-grid input:focus { outline:none; border-color:var(--accent); }
+.info-tag { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; background:var(--bg); color:var(--muted); border:1px solid var(--border); }
+@media(max-width:900px){ .test-info-grid { grid-template-columns:1fr; } }
