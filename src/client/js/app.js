@@ -210,7 +210,7 @@ window.App = (() => {
     $('runBtn').addEventListener('click',     runComparison);
     $('saveBtn').addEventListener('click',    saveResult);
     $('resetBtn').addEventListener('click',   resetCurrent);
-    $('clearDbBtn').addEventListener('click', clearDatabase);
+    // $('clearDbBtn').addEventListener('click', clearDatabase);
     $('exportBtn').addEventListener('click',  exportJSON);
 
     // 3. Threshold slider
