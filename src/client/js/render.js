@@ -43,10 +43,18 @@ window.Render = (() => {
     setMetric('Rec',  m.recall);
     setMetric('F1',   m.f1);
     setMetric('Acc',  m.accuracy);
+    const hallEl  = document.getElementById('mHall');
+    const hallBar = document.getElementById('bHall');
+    const hr = m.hallucinationRate || 0;
+    hallEl.textContent = m.hallucinations + ' (' + (hr * 100).toFixed(1) + '%)';
+    hallEl.className   = 'metric-val ' + (hr <= .25 ? 'c-green' : hr <= .5 ? 'c-warn' : 'c-red');
+    hallBar.style.width      = (hr * 100).toFixed(1) + '%';
+    hallBar.style.background = hr <= .25 ? 'var(--accent)' : hr <= .5 ? 'var(--warn)' : 'var(--danger)';
     document.getElementById('statusBar').innerHTML = `
       <div class="status-item"><span class="status-dot" style="background:var(--accent)"></span>${m.matches} Match</div>
       <div class="status-item"><span class="status-dot" style="background:var(--warn)"></span>${m.partials} Partial</div>
       <div class="status-item"><span class="status-dot" style="background:var(--danger)"></span>${m.misses} Miss</div>
+      <div class="status-item"><span class="status-dot" style="background:#7c3aed"></span>${m.hallucinations} Hallucinated</div>
       <div class="status-item" style="margin-left:auto;color:var(--muted);font-size:12px">${m.manualCount} manual · ${m.llmCount} LLM triples</div>`;
   }
   function setMetric(id, val) {

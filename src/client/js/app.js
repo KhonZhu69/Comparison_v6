@@ -4,13 +4,14 @@
 
 window.App = (() => {
 
-  let manualData   = [];
-  let llmData      = [];
-  let compResults  = [];
-  let savedResults = [];
-  let metrics      = null;
-  let activeFilter = 'all';
-  let searchQuery  = '';
+  let manualData          = [];
+  let llmData             = [];
+  let compResults         = [];
+  let hallucinatedTriples = [];
+  let savedResults        = [];
+  let metrics             = null;
+  let activeFilter        = 'all';
+  let searchQuery         = '';
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function $(id) { return document.getElementById(id); }
@@ -62,8 +63,8 @@ window.App = (() => {
     setTimeout(() => {
       try {
         const thresh = +$('threshold').value;
-        const { results, metrics: m } = Compare.run(manualData, llmData, thresh);
-        compResults = results; metrics = m;
+        const { results, metrics: m, hallucinatedTriples: ht } = Compare.run(manualData, llmData, thresh);
+        compResults = results; metrics = m; hallucinatedTriples = ht;
         Render.metricCards(m);
         $('badgeComp').textContent = compResults.length;
         renderCompTable();
@@ -154,7 +155,7 @@ window.App = (() => {
   }
 
   function resetCurrent() {
-    manualData = []; llmData = []; compResults = []; metrics = null; searchQuery = '';
+    manualData = []; llmData = []; compResults = []; hallucinatedTriples = []; metrics = null; searchQuery = '';
     ['docxInput','csvInput'].forEach(id => $(id).value = '');
     $('docxName').textContent = 'No file selected — click to browse';
     $('csvName').textContent  = 'No file selected — click to browse';
@@ -171,8 +172,8 @@ window.App = (() => {
     $('manualTableWrap').innerHTML = '<div class="empty">Upload a DOCX file to preview manual extraction.</div>';
     $('llmTableWrap').innerHTML    = '<div class="empty">Upload a CSV file to preview LLM output.</div>';
     $('statusBar').innerHTML = '';
-    ['mPrec','mRec','mF1','mAcc'].forEach(id => { $(id).textContent = '—'; $(id).className = 'metric-val'; });
-    ['bPrec','bRec','bF1','bAcc'].forEach(id => $(id).style.width = '0');
+    ['mPrec','mRec','mF1','mAcc','mHall'].forEach(id => { $(id).textContent = '—'; $(id).className = 'metric-val'; });
+    ['bPrec','bRec','bF1','bAcc','bHall'].forEach(id => $(id).style.width = '0');
     ['badgeComp','badgeManual','badgeLLM'].forEach(id => $(id).textContent = '0');
     Render.destroyChart('chartDist'); Render.destroyChart('chartMetrics');
   }
@@ -217,7 +218,8 @@ window.App = (() => {
     $('threshold').addEventListener('input', () => {
       $('thresholdVal').textContent = $('threshold').value + '%';
       if (compResults.length) {
-        const { results, metrics: m } = Compare.reclassify(compResults, +$('threshold').value, llmData.length);
+        const { results, metrics: m, hallucinatedTriples: ht } = Compare.reclassify(compResults, +$('threshold').value, llmData);
+        hallucinatedTriples = ht;
         compResults = results; metrics = m;
         Render.metricCards(m); renderCompTable(); Render.renderCharts(m);
       }

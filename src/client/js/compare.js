@@ -27,6 +27,13 @@ window.Compare = (() => {
     return (srcScore * 0.4) + (relScore * 0.2) + (tgtScore * 0.4);
   }
 
+  function findHallucinatedTriples(results, llmData) {
+    const matchedLLM = new Set(
+      results.filter(r => r.status !== 'miss' && r.llm).map(r => r.llm)
+    );
+    return llmData.filter(l => !matchedLLM.has(l));
+  }
+
   function run(manualData, llmData, thresholdPct) {
     const thresh        = thresholdPct / 100;
     const partialThresh = thresh * 0.5;
@@ -43,18 +50,20 @@ window.Compare = (() => {
       return { manual: m, llm: bestLLM, score: bestScore, status };
     });
 
+    const hallucinatedTriples = findHallucinatedTriples(results, llmData);
     const metrics = calcMetrics(results, llmData.length);
-    return { results, metrics };
+    return { results, metrics, hallucinatedTriples };
   }
 
-  function reclassify(results, thresholdPct, llmCount) {
+  function reclassify(results, thresholdPct, llmData) {
     const thresh        = thresholdPct / 100;
     const partialThresh = thresh * 0.5;
     const updated = results.map(r => ({
       ...r,
       status: r.score >= thresh ? 'match' : r.score >= partialThresh ? 'partial' : 'miss',
     }));
-    return { results: updated, metrics: calcMetrics(updated, llmCount) };
+    const hallucinatedTriples = findHallucinatedTriples(updated, llmData);
+    return { results: updated, metrics: calcMetrics(updated, llmData.length), hallucinatedTriples };
   }
 
   function calcMetrics(results, llmCount) {
@@ -69,7 +78,9 @@ window.Compare = (() => {
     const recall    = tp + fn ? tp / (tp + fn) : 0;
     const f1        = precision + recall ? 2 * precision * recall / (precision + recall) : 0;
     const accuracy  = total ? tp / total : 0;
-    return { precision, recall, f1, accuracy, matches, partials, misses, manualCount: total, llmCount };
+    const hallucinations     = Math.round(fp);
+    const hallucinationRate  = llmCount ? fp / llmCount : 0;
+    return { precision, recall, f1, accuracy, matches, partials, misses, manualCount: total, llmCount, hallucinations, hallucinationRate };
   }
 
   return { run, reclassify, calcMetrics };
