@@ -27,18 +27,30 @@ window.Compare = (() => {
     return (srcScore * 0.4) + (relScore * 0.2) + (tgtScore * 0.4);
   }
 
-  function findHallucinatedTriples(results, llmData) {
-    const matchedLLM = new Set(
+  function matchedLLMSet(results) {
+    return new Set(
       results.filter(r => r.status !== 'miss' && r.llm).map(r => r.llm)
     );
+  }
+
+  function findHallucinatedTriples(results, llmData) {
+    const matchedLLM = matchedLLMSet(results);
     return llmData.filter(l => !matchedLLM.has(l));
+  }
+
+  function markHallucinations(results) {
+    const matchedLLM = matchedLLMSet(results);
+    return results.map(r => ({
+      ...r,
+      hallucination: Boolean(r.llm && (r.status === 'miss' || !matchedLLM.has(r.llm))),
+    }));
   }
 
   function run(manualData, llmData, thresholdPct) {
     const thresh        = thresholdPct / 100;
     const partialThresh = thresh * 0.5;
 
-    const results = manualData.map(m => {
+    const scored = manualData.map(m => {
       let bestScore = 0, bestLLM = null;
       for (const l of llmData) {
         const s = tripleScore(m, l);
@@ -50,6 +62,7 @@ window.Compare = (() => {
       return { manual: m, llm: bestLLM, score: bestScore, status };
     });
 
+    const results = markHallucinations(scored);
     const hallucinatedTriples = findHallucinatedTriples(results, llmData);
     const metrics = calcMetrics(results, llmData.length);
     return { results, metrics, hallucinatedTriples };
@@ -58,10 +71,11 @@ window.Compare = (() => {
   function reclassify(results, thresholdPct, llmData) {
     const thresh        = thresholdPct / 100;
     const partialThresh = thresh * 0.5;
-    const updated = results.map(r => ({
+    const rescored = results.map(r => ({
       ...r,
       status: r.score >= thresh ? 'match' : r.score >= partialThresh ? 'partial' : 'miss',
     }));
+    const updated = markHallucinations(rescored);
     const hallucinatedTriples = findHallucinatedTriples(updated, llmData);
     return { results: updated, metrics: calcMetrics(updated, llmData.length), hallucinatedTriples };
   }

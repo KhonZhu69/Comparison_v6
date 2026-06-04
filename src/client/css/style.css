@@ -58,7 +58,7 @@ textarea:focus, input:focus, select:focus { outline:none; border-color:var(--acc
 /* ── Metric cards ── */
 .metrics-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:24px; }
 .metric-card { background:var(--surface); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow); }
-.metric-label { font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+.metric-label { font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0; margin-bottom:6px; }
 .metric-val { font-size:32px; font-weight:800; line-height:1; color:var(--muted); }
 .c-green { color:var(--accent); } .c-warn { color:var(--warn); } .c-red { color:var(--danger); }
 .metric-sub { font-size:11px; color:var(--muted); margin-top:6px; }
@@ -81,19 +81,29 @@ textarea:focus, input:focus, select:focus { outline:none; border-color:var(--acc
 .filter-btn.active-f { background:var(--accent); color:#fff; border-color:var(--accent); }
 
 /* ── Table ── */
-.table-wrap { border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:var(--surface); box-shadow:var(--shadow); }
+.table-wrap { border:1px solid var(--border); border-radius:var(--radius); overflow:auto; background:var(--surface); box-shadow:var(--shadow); }
 table { width:100%; border-collapse:collapse; font-size:13px; }
+.comparison-table { min-width:1050px; }
+.saved-results-table { min-width:1180px; }
 thead { background:#fafaf8; }
-th { padding:10px 14px; text-align:left; font-size:11px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid var(--border); white-space:nowrap; }
+th { padding:10px 14px; text-align:left; font-size:11px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:0; border-bottom:1px solid var(--border); white-space:nowrap; }
 td { padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
 tr:last-child td { border-bottom:none; }
 tr:hover td { background:#fafaf8; }
+tr.row-best td, tr.result-best-row td { background:#f1f8f4; }
+tr.row-best:hover td, tr.result-best-row:hover td { background:#e8f4ef; }
+tr.row-best td:first-child, tr.result-best-row td:first-child { box-shadow:inset 4px 0 0 var(--accent); }
+tr.row-hallucination:not(.row-best) td { background:#fffbeb; }
+tr.row-hallucination:not(.row-best):hover td { background:#fef3c7; }
 
 /* ── Pills & tags ── */
 .pill { display:inline-block; font-size:11px; font-weight:800; padding:2px 9px; border-radius:20px; white-space:nowrap; }
 .pill-match   { background:var(--accent-light); color:var(--accent); }
 .pill-partial { background:var(--warn-light);   color:var(--warn); }
 .pill-miss    { background:var(--danger-light);  color:var(--danger); }
+.pill-ok      { background:var(--accent-light); color:var(--accent); }
+.pill-hallucination { background:var(--warn-light); color:var(--warn); }
+.best-chip { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:999px; background:var(--accent); color:#fff; font-size:10px; font-weight:800; white-space:nowrap; }
 .rel-tag    { font-size:11px; background:var(--purple-light); color:var(--purple); padding:2px 8px; border-radius:4px; font-weight:700; }
 .entity-tag { font-size:11px; background:var(--info-light); color:var(--info); padding:2px 8px; border-radius:4px; font-weight:700; display:inline-block; margin-top:2px; }
 .triple-text { font-size:12px; color:var(--muted); margin-top:3px; }
@@ -120,6 +130,15 @@ tr:hover td { background:#fafaf8; }
 .result-line  { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
 .mini-stat { background:var(--bg); border-radius:8px; padding:8px 10px; font-size:12px; min-width:100px; }
 .mini-stat strong { display:block; font-size:18px; margin-top:2px; }
+.metric-cell { font-weight:800; white-space:nowrap; }
+.hallucination-cell { font-weight:800; white-space:nowrap; }
+.hallucination-good { color:var(--accent); }
+.hallucination-warn { color:var(--warn); }
+.hallucination-bad { color:var(--danger); }
+.prompt-cell { min-width:260px; max-width:360px; }
+.table-prompt { color:var(--muted); font-size:12px; line-height:1.35; max-height:64px; overflow:auto; white-space:pre-wrap; }
+.actions-cell { min-width:150px; white-space:nowrap; }
+.actions-cell .btn-outline, .actions-cell .btn-danger { padding:7px 11px; margin:0 6px 6px 0; }
 
 /* ── Prompt preview ── */
 .prompt-preview { background:#fafaf8; border:1px solid var(--border); border-radius:8px; padding:10px; font-size:12px; color:var(--muted); white-space:pre-wrap; max-height:120px; overflow:auto; }

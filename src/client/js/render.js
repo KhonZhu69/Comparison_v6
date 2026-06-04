@@ -9,17 +9,64 @@ window.Render = (() => {
       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
   function formatDate(iso) { return new Date(iso).toLocaleString(); }
+  function num(val) {
+    const n = Number(val);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function pct(val) {
+    return (num(val) * 100).toFixed(1) + '%';
+  }
   function miniStat(label, val) {
-    return `<div class="mini-stat">${label}<strong>${(val*100).toFixed(1)}%</strong></div>`;
+    return `<div class="mini-stat">${label}<strong>${pct(val)}</strong></div>`;
+  }
+  function hallucinationText(metrics) {
+    const count = Math.round(num(metrics?.hallucinations));
+    return `${count} (${pct(metrics?.hallucinationRate)})`;
+  }
+  function hallucinationTone(metrics) {
+    const rate = num(metrics?.hallucinationRate);
+    return rate <= .25 ? 'good' : rate <= .5 ? 'warn' : 'bad';
+  }
+  function isHallucinatedRow(row) {
+    if (typeof row.hallucination === 'boolean') return row.hallucination;
+    return row.status === 'miss' && Boolean(row.llm);
+  }
+  function rankTuple(result) {
+    const m = result.metrics || {};
+    return [
+      num(m.f1),
+      num(m.accuracy),
+      num(m.precision),
+      num(m.recall),
+      -num(m.hallucinationRate),
+      -num(m.hallucinations),
+    ];
+  }
+  function compareRank(a, b) {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] > b[i]) return 1;
+      if (a[i] < b[i]) return -1;
+    }
+    return 0;
+  }
+  function bestResultIds(results) {
+    if (!results.length) return new Set();
+    let best = rankTuple(results[0]);
+    results.slice(1).forEach(r => {
+      const rank = rankTuple(r);
+      if (compareRank(rank, best) > 0) best = rank;
+    });
+    return new Set(results.filter(r => compareRank(rankTuple(r), best) === 0).map(r => r.id));
   }
   function infoBadges(r) {
+    const m = r.metrics || {};
     return `
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
         <span class="info-tag">📄 ${esc(r.paperName||'—')}</span>
         <span class="info-tag">🤖 ${esc(r.modelName||'—')}</span>
         <span class="info-tag">📅 ${formatDate(r.createdAt)}</span>
         <span class="info-tag">Threshold ${r.threshold}%</span>
-        <span class="info-tag">${r.metrics.manualCount} manual · ${r.metrics.llmCount} LLM</span>
+        <span class="info-tag">${num(m.manualCount)} manual · ${num(m.llmCount)} LLM</span>
       </div>`;
   }
 
@@ -45,7 +92,7 @@ window.Render = (() => {
     setMetric('Acc',  m.accuracy);
     const hallEl  = document.getElementById('mHall');
     const hallBar = document.getElementById('bHall');
-    const hr = m.hallucinationRate || 0;
+    const hr = num(m.hallucinationRate);
     hallEl.textContent = m.hallucinations + ' (' + (hr * 100).toFixed(1) + '%)';
     hallEl.className   = 'metric-val ' + (hr <= .25 ? 'c-green' : hr <= .5 ? 'c-warn' : 'c-red');
     hallBar.style.width      = (hr * 100).toFixed(1) + '%';
@@ -58,6 +105,7 @@ window.Render = (() => {
       <div class="status-item" style="margin-left:auto;color:var(--muted);font-size:12px">${m.manualCount} manual · ${m.llmCount} LLM triples</div>`;
   }
   function setMetric(id, val) {
+    val = num(val);
     const el  = document.getElementById('m'+id);
     const bar = document.getElementById('b'+id);
     el.textContent = (val*100).toFixed(1)+'%';
@@ -74,28 +122,36 @@ window.Render = (() => {
     document.getElementById('compTableWrap').innerHTML = buildCompTable(rows);
   }
   function buildCompTable(rows) {
-    let html = `<div class="table-wrap"><table><thead><tr>
+    const bestScore = rows.reduce((max, r) => Math.max(max, num(r.score)), 0);
+    let html = `<div class="table-wrap"><table class="comparison-table"><thead><tr>
       <th>#</th><th>Manual extraction</th><th>LLM triple</th>
-      <th>Score</th><th>Status</th><th>Relation type</th>
+      <th>Score</th><th>Status</th><th>Hallucination</th><th>Relation type</th>
     </tr></thead><tbody>`;
     rows.forEach(r => {
+      const score = num(r.score);
+      const isBest = r.status === 'match' && score === bestScore && bestScore > 0;
+      const isHallucination = isHallucinatedRow(r);
       const mParts = (r.manual.relRep||'').match(/^(.+?)\s*→\s*\[([^\]]+)\]\s*→\s*(.+)$/);
       const pill   = r.status==='match'
         ? '<span class="pill pill-match">✓ Match</span>'
         : r.status==='partial'
           ? '<span class="pill pill-partial">~ Partial</span>'
           : '<span class="pill pill-miss">✗ Miss</span>';
+      const hallucinationPill = isHallucination
+        ? '<span class="pill pill-hallucination">Yes</span>'
+        : '<span class="pill pill-ok">No</span>';
       const mCell = mParts
         ? `<strong>${esc(mParts[1].trim())}</strong><span class="arrow">→</span><span class="rel-tag">${esc(mParts[2].trim())}</span><span class="arrow">→</span><strong>${esc(mParts[3].trim())}</strong><div class="triple-text">${esc((r.manual.fact||'').substring(0,120))}${(r.manual.fact||'').length>120?'…':''}</div>`
         : `<div class="triple-text">${esc(r.manual.fact)}</div>`;
       const lCell = r.llm
         ? `<strong>${esc(r.llm.source)}</strong><span class="arrow">→</span><span class="rel-tag">${esc(r.llm.relation)}</span><span class="arrow">→</span><strong>${esc(r.llm.target)}</strong><div><span class="entity-tag">${esc(r.llm.source_type)}</span></div>`
         : '<span style="color:var(--muted);font-size:12px">No match found</span>';
-      html += `<tr>
+      html += `<tr class="${isBest ? 'row-best' : ''} ${isHallucination ? 'row-hallucination' : ''}">
         <td style="color:var(--muted);font-size:12px">${esc(r.manual.id)}</td>
         <td>${mCell}</td><td>${lCell}</td>
-        <td><strong>${(r.score*100).toFixed(0)}%</strong></td>
+        <td><strong>${(score*100).toFixed(0)}%</strong>${isBest ? '<span class="best-chip">Best</span>' : ''}</td>
         <td>${pill}</td>
+        <td>${hallucinationPill}</td>
         <td><span class="pill" style="background:var(--bg);color:var(--muted)">${esc(r.manual.relType||'—')}</span></td>
       </tr>`;
     });
@@ -153,22 +209,38 @@ window.Render = (() => {
       wrap.innerHTML = '<div class="empty">No prompt results saved yet.</div>';
       return;
     }
-    wrap.innerHTML = results.map(r => `
-      <div class="result-card">
-        <div class="result-title">Prompt ${esc(r.promptNumber)}</div>
-        ${infoBadges(r)}
-        <div class="result-line">
-          ${miniStat('Accuracy',  r.metrics.accuracy)}
-          ${miniStat('F1 Score',  r.metrics.f1)}
-          ${miniStat('Recall',    r.metrics.recall)}
-          ${miniStat('Precision', r.metrics.precision)}
-        </div>
-        <div class="prompt-preview">${esc(r.prompt)}</div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn-outline" onclick="App.openSavedResult('${r.id}')">View comparison</button>
-          <button class="btn-danger"  onclick="App.deleteSavedResult('${r.id}')">Delete</button>
-        </div>
-      </div>`).join('');
+    const bestIds = bestResultIds(results);
+    wrap.innerHTML = `<div class="table-wrap saved-results-wrap"><table class="saved-results-table">
+      <thead><tr>
+        <th>Prompt</th><th>Paper</th><th>Model</th><th>Accuracy</th>
+        <th>F1</th><th>Recall</th><th>Precision</th><th>Hallucination</th>
+        <th>Prompt preview</th><th>Actions</th>
+      </tr></thead><tbody>
+      ${results.map(r => {
+        const m = r.metrics || {};
+        const isBest = bestIds.has(r.id);
+        const hallTone = hallucinationTone(m);
+        return `<tr class="${isBest ? 'result-best-row' : ''}">
+          <td>
+            <strong>Prompt ${esc(r.promptNumber)}</strong>
+            ${isBest ? '<span class="best-chip">Best result</span>' : ''}
+            <div class="result-meta">Threshold ${esc(r.threshold)}% · ${num(m.manualCount)} manual · ${num(m.llmCount)} LLM</div>
+          </td>
+          <td>${esc(r.paperName || '—')}</td>
+          <td>${esc(r.modelName || '—')}</td>
+          <td class="metric-cell">${pct(m.accuracy)}</td>
+          <td class="metric-cell">${pct(m.f1)}</td>
+          <td class="metric-cell">${pct(m.recall)}</td>
+          <td class="metric-cell">${pct(m.precision)}</td>
+          <td class="hallucination-cell hallucination-${hallTone}">${hallucinationText(m)}</td>
+          <td class="prompt-cell"><div class="table-prompt">${esc(r.prompt)}</div></td>
+          <td class="actions-cell">
+            <button class="btn-outline" onclick="App.openSavedResult('${r.id}')">View</button>
+            <button class="btn-danger" onclick="App.deleteSavedResult('${r.id}')">Delete</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>`;
   }
 
   // ── Dropdown ──────────────────────────────────────────────────────────────
@@ -180,17 +252,17 @@ window.Render = (() => {
     }
     select.innerHTML = '<option value="">Select a prompt result</option>' +
       results.map(r =>
-        `<option value="${r.id}">Prompt ${esc(r.promptNumber)} — ${esc(r.paperName||'?')} — ${esc(r.modelName||'?')} — Acc ${(r.metrics.accuracy*100).toFixed(1)}%</option>`
+        `<option value="${r.id}">Prompt ${esc(r.promptNumber)} — ${esc(r.paperName||'?')} — ${esc(r.modelName||'?')} — Acc ${pct(r.metrics?.accuracy)} — Hall ${hallucinationText(r.metrics)}</option>`
       ).join('');
   }
 
   // ── Saved result detail ───────────────────────────────────────────────────
   function savedResultDetail(r) {
     document.getElementById('selectedResultInfo').innerHTML = `
-      <div class="result-card" style="margin-bottom:0">
+        <div class="result-card" style="margin-bottom:0">
         <div class="result-title">Prompt ${esc(r.promptNumber)}</div>
         ${infoBadges(r)}
-        <div class="result-meta" style="margin-bottom:8px">Acc ${(r.metrics.accuracy*100).toFixed(1)}% · F1 ${(r.metrics.f1*100).toFixed(1)}% · Recall ${(r.metrics.recall*100).toFixed(1)}% · Precision ${(r.metrics.precision*100).toFixed(1)}%</div>
+        <div class="result-meta" style="margin-bottom:8px">Acc ${pct(r.metrics?.accuracy)} · F1 ${pct(r.metrics?.f1)} · Recall ${pct(r.metrics?.recall)} · Precision ${pct(r.metrics?.precision)} · Hall ${hallucinationText(r.metrics)}</div>
         <div class="prompt-preview">${esc(r.prompt)}</div>
       </div>`;
     document.getElementById('selectedComparisonWrap').innerHTML = buildCompTable(r.comparison);
