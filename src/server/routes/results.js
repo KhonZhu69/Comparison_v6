@@ -4,6 +4,10 @@ import pool from '../db.js';
 
 const router = Router();
 
+const resultFields = `id, prompt_number AS "promptNumber", title,
+                 paper_name AS "paperName", model_name AS "modelName",
+                 created_at AS "createdAt", prompt, threshold, metrics, comparison`;
+
 router.get('/', async (_req, res) => {
   try {
     const { rows } = await pool.query(
@@ -30,9 +34,7 @@ router.post('/', async (req, res) => {
          (id, prompt_number, title, paper_name, model_name, prompt, threshold, metrics, comparison)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (id) DO NOTHING
-       RETURNING id, prompt_number AS "promptNumber", title,
-                 paper_name AS "paperName", model_name AS "modelName",
-                 created_at AS "createdAt", prompt, threshold, metrics, comparison`,
+       RETURNING ${resultFields}`,
       [id, promptNumber, title||`Prompt ${promptNumber}`, paperName||'', modelName||'',
        prompt, threshold, JSON.stringify(metrics), JSON.stringify(comparison)]
     );
@@ -41,6 +43,35 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.error('POST /api/results error:', err.message);
     res.status(500).json({ error: 'Failed to save result.' });
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  const { promptNumber, title, paperName, modelName, prompt, threshold, metrics, comparison } = req.body;
+  if (!prompt || !metrics) {
+    return res.status(400).json({ error: 'prompt and metrics are required.' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE prompt_results
+          SET prompt_number = $1,
+              title         = $2,
+              paper_name    = $3,
+              model_name    = $4,
+              prompt        = $5,
+              threshold     = $6,
+              metrics       = $7,
+              comparison    = $8
+        WHERE id = $9
+        RETURNING ${resultFields}`,
+      [promptNumber||'', title||`Prompt ${promptNumber||''}`, paperName||'', modelName||'',
+       prompt, threshold||60, JSON.stringify(metrics), JSON.stringify(comparison||[]), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Result not found.' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PUT /api/results/:id error:', err.message);
+    res.status(500).json({ error: 'Failed to update result.' });
   }
 });
 
