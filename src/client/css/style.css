@@ -137,8 +137,8 @@ tr.row-hallucination:not(.row-best):hover td { background:#fef3c7; }
 .hallucination-bad { color:var(--danger); }
 .prompt-cell { min-width:260px; max-width:360px; }
 .table-prompt { color:var(--muted); font-size:12px; line-height:1.35; max-height:64px; overflow:auto; white-space:pre-wrap; }
-.actions-cell { min-width:150px; white-space:nowrap; }
-.actions-cell .btn-outline, .actions-cell .btn-danger { padding:7px 11px; margin:0 6px 6px 0; }
+.actions-cell { min-width:190px; white-space:nowrap; }
+.actions-cell .btn-outline, .actions-cell .btn-primary, .actions-cell .btn-danger { padding:7px 11px; margin:0 6px 6px 0; }
 
 /* ── Prompt preview ── */
 .prompt-preview { background:#fafaf8; border:1px solid var(--border); border-radius:8px; padding:10px; font-size:12px; color:var(--muted); white-space:pre-wrap; max-height:120px; overflow:auto; }
