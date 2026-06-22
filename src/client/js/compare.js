@@ -8,6 +8,26 @@ window.Compare = (() => {
     return (s || '').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean);
   }
 
+  function num(val) {
+    const n = Number(val);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function norm(s) {
+    return (s || '').toString().trim().toLowerCase();
+  }
+
+  function llmKey(llm) {
+    if (!llm) return '';
+    return [
+      llm.source,
+      llm.source_type,
+      llm.relation,
+      llm.target,
+      llm.target_type,
+    ].map(norm).join('|');
+  }
+
   function jaccard(a, b) {
     const sa = new Set(tokenise(a));
     const sb = new Set(tokenise(b));
@@ -29,21 +49,40 @@ window.Compare = (() => {
 
   function matchedLLMSet(results) {
     return new Set(
-      results.filter(r => r.status !== 'miss' && r.llm).map(r => r.llm)
+      results.filter(r => r.status !== 'miss' && r.llm).map(r => llmKey(r.llm))
     );
   }
 
   function findHallucinatedTriples(results, llmData) {
     const matchedLLM = matchedLLMSet(results);
-    return llmData.filter(l => !matchedLLM.has(l));
+    return llmData.filter(l => !matchedLLM.has(llmKey(l)));
   }
 
   function markHallucinations(results) {
     const matchedLLM = matchedLLMSet(results);
     return results.map(r => ({
       ...r,
-      hallucination: Boolean(r.llm && (r.status === 'miss' || !matchedLLM.has(r.llm))),
+      hallucination: Boolean(r.llm && (r.status === 'miss' || !matchedLLM.has(llmKey(r.llm)))),
     }));
+  }
+
+  function llmCountFromComparison(results) {
+    return new Set(results.filter(r => r.llm).map(r => llmKey(r.llm))).size;
+  }
+
+  function normalizeSavedResult(result) {
+    const comparison = markHallucinations(Array.isArray(result.comparison) ? result.comparison : []);
+    const existingMetrics = result.metrics || {};
+    const metricLLMCount = num(existingMetrics.llmCount);
+    const llmCount = metricLLMCount || llmCountFromComparison(comparison);
+    const metrics = comparison.length
+      ? { ...existingMetrics, ...calcMetrics(comparison, llmCount) }
+      : existingMetrics;
+    return { ...result, metrics, comparison };
+  }
+
+  function normalizeSavedResults(results) {
+    return Array.isArray(results) ? results.map(normalizeSavedResult) : [];
   }
 
   function run(manualData, llmData, thresholdPct) {
@@ -97,5 +136,5 @@ window.Compare = (() => {
     return { precision, recall, f1, accuracy, matches, partials, misses, manualCount: total, llmCount, hallucinations, hallucinationRate };
   }
 
-  return { run, reclassify, calcMetrics };
+  return { run, reclassify, calcMetrics, normalizeSavedResult, normalizeSavedResults };
 })();
