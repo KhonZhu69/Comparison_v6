@@ -27,6 +27,20 @@ window.Api = {
     return res.json();
   },
 
+  /** Update an existing saved result in the database. */
+  async updateResult(id, result) {
+    const res = await fetch(`${BASE}/results/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(result),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `PUT /results/${id} → ${res.status}`);
+    }
+    return res.json();
+  },
+
   /** Delete a single result by id. */
   async deleteResult(id) {
     const res = await fetch(`${BASE}/results/${encodeURIComponent(id)}`, { method: 'DELETE' });
