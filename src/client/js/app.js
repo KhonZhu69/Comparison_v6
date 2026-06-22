@@ -24,10 +24,16 @@ window.App = (() => {
     return Compare.normalizeSavedResults(results);
   }
 
-  function replaceSavedResult(result) {
-    savedResults = savedResults.map(r => r.id === result.id ? result : r);
-    Render.savedResultsList(savedResults);
-    Render.resultDropdown(savedResults);
+  function filePart(value) {
+    return (value || 'result').toString().trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'result';
+  }
+
+  function downloadJSON(data, filename) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
+    a.click(); URL.revokeObjectURL(a.href);
   }
 
   // ── File upload handlers — wired first, no API dependency ─────────────────
@@ -131,23 +137,19 @@ window.App = (() => {
     } catch (err) { Render.toast('Save failed: ' + err.message, 'error'); }
   }
 
-  async function saveSavedResult(id) {
+  function downloadSavedResult(id) {
     const current = savedResults.find(r => r.id === id);
     if (!current) { Render.toast('Saved result not found.', 'error'); return; }
 
-    try {
-      const normalized = Compare.normalizeSavedResult(current);
-      const saved = Compare.normalizeSavedResult(await Api.updateResult(id, normalized));
-      const selectedId = $('resultSelect').value;
-      replaceSavedResult(saved);
-      if (selectedId === id) {
-        $('resultSelect').value = id;
-        Render.savedResultDetail(saved);
-      }
-      Render.toast(`Saved updates for Prompt ${saved.promptNumber}.`);
-    } catch (err) {
-      Render.toast('Update failed: ' + err.message, 'error');
-    }
+    const normalized = Compare.normalizeSavedResult(current);
+    const filename = [
+      'saved-result',
+      'prompt-' + filePart(normalized.promptNumber),
+      filePart(normalized.paperName),
+      filePart(normalized.modelName),
+    ].filter(Boolean).join('_') + '.json';
+    downloadJSON(normalized, filename);
+    Render.toast(`Downloaded Prompt ${normalized.promptNumber}.`);
   }
 
   async function deleteSavedResult(id) {
@@ -208,9 +210,7 @@ window.App = (() => {
   }
 
   function exportJSON() {
-    const blob = new Blob([JSON.stringify(savedResults, null, 2)], { type:'application/json' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'prompt_results.json' });
-    a.click(); URL.revokeObjectURL(a.href);
+    downloadJSON(savedResults, 'prompt_results.json');
   }
 
   // ── DB load (async, never blocks UI) ──────────────────────────────────────
@@ -279,5 +279,5 @@ window.App = (() => {
     loadFromDb();
   });
 
-  return { openSavedResult, deleteSavedResult, saveSavedResult };
+  return { openSavedResult, deleteSavedResult, downloadSavedResult };
 })();
