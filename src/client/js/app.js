@@ -24,6 +24,12 @@ window.App = (() => {
     return Compare.normalizeSavedResults(results);
   }
 
+  function replaceSavedResult(result) {
+    savedResults = savedResults.map(r => r.id === result.id ? result : r);
+    Render.savedResultsList(savedResults);
+    Render.resultDropdown(savedResults);
+  }
+
   // ── File upload handlers — wired first, no API dependency ─────────────────
   async function onDocxChange(e) {
     const file = e.target.files[0];
@@ -123,6 +129,25 @@ window.App = (() => {
       Render.toast(`Saved Prompt ${saved.promptNumber}!`);
       Render.activateTab('results');
     } catch (err) { Render.toast('Save failed: ' + err.message, 'error'); }
+  }
+
+  async function saveSavedResult(id) {
+    const current = savedResults.find(r => r.id === id);
+    if (!current) { Render.toast('Saved result not found.', 'error'); return; }
+
+    try {
+      const normalized = Compare.normalizeSavedResult(current);
+      const saved = Compare.normalizeSavedResult(await Api.updateResult(id, normalized));
+      const selectedId = $('resultSelect').value;
+      replaceSavedResult(saved);
+      if (selectedId === id) {
+        $('resultSelect').value = id;
+        Render.savedResultDetail(saved);
+      }
+      Render.toast(`Saved updates for Prompt ${saved.promptNumber}.`);
+    } catch (err) {
+      Render.toast('Update failed: ' + err.message, 'error');
+    }
   }
 
   async function deleteSavedResult(id) {
@@ -254,5 +279,5 @@ window.App = (() => {
     loadFromDb();
   });
 
-  return { openSavedResult, deleteSavedResult };
+  return { openSavedResult, deleteSavedResult, saveSavedResult };
 })();
