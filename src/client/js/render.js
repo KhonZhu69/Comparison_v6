@@ -236,6 +236,7 @@ window.Render = (() => {
           <td class="prompt-cell"><div class="table-prompt">${esc(r.prompt)}</div></td>
           <td class="actions-cell">
             <button class="btn-outline" onclick="App.openSavedResult('${r.id}')">View</button>
+            <button class="btn-primary" onclick="App.saveSavedResult('${r.id}')">Save</button>
             <button class="btn-danger" onclick="App.deleteSavedResult('${r.id}')">Delete</button>
           </td>
         </tr>`;
@@ -264,6 +265,9 @@ window.Render = (() => {
         ${infoBadges(r)}
         <div class="result-meta" style="margin-bottom:8px">Acc ${pct(r.metrics?.accuracy)} · F1 ${pct(r.metrics?.f1)} · Recall ${pct(r.metrics?.recall)} · Precision ${pct(r.metrics?.precision)} · Hall ${hallucinationText(r.metrics)}</div>
         <div class="prompt-preview">${esc(r.prompt)}</div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="App.saveSavedResult('${r.id}')">Save updates</button>
+        </div>
       </div>`;
     document.getElementById('selectedComparisonWrap').innerHTML = buildCompTable(r.comparison);
   }
