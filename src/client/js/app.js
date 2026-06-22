@@ -20,6 +20,10 @@ window.App = (() => {
     $('runBtn').disabled = !(manualData.length && llmData.length);
   }
 
+  function normalizeSavedResults(results) {
+    return Compare.normalizeSavedResults(results);
+  }
+
   // ── File upload handlers — wired first, no API dependency ─────────────────
   async function onDocxChange(e) {
     const file = e.target.files[0];
@@ -112,7 +116,7 @@ window.App = (() => {
       metrics, comparison: compResults,
     };
     try {
-      const saved = await Api.saveResult(newResult);
+      const saved = Compare.normalizeSavedResult(await Api.saveResult(newResult));
       savedResults.push(saved);
       Render.savedResultsList(savedResults);
       Render.resultDropdown(savedResults);
@@ -125,7 +129,7 @@ window.App = (() => {
     if (!confirm('Delete this saved result?')) return;
     try {
       await Api.deleteResult(id);
-      savedResults = await Api.getResults();
+      savedResults = normalizeSavedResults(await Api.getResults());
       Render.savedResultsList(savedResults);
       Render.resultDropdown(savedResults);
       $('selectedResultInfo').innerHTML = '<div class="empty">Choose a saved result to view its comparison.</div>';
@@ -192,7 +196,7 @@ window.App = (() => {
     } catch { Render.dbStatus('err'); }
 
     try {
-      savedResults = await Api.getResults();
+      savedResults = normalizeSavedResults(await Api.getResults());
       Render.savedResultsList(savedResults);
       Render.resultDropdown(savedResults);
     } catch (err) {
