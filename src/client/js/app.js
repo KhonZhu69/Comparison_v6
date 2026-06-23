@@ -93,85 +93,193 @@ window.App = (() => {
     return d && !Number.isNaN(d.getTime()) ? d.toLocaleString() : 'Not recorded';
   }
 
-  function addWrappedPdfLine(lines, label, value, maxChars = 86) {
-    const wrapped = wrapPdfText(value || '-', maxChars);
-    if (!wrapped.length) { lines.push(label + ' -'); return; }
-    lines.push(label + ' ' + wrapped[0]);
-    wrapped.slice(1).forEach(line => lines.push('  ' + line));
+  function pdfText(x, y, text, size = 8, font = 'F1') {
+    return 'BT\n/' + font + ' ' + size + ' Tf\n' + x.toFixed(2) + ' ' + y.toFixed(2) + ' Td\n(' + pdfEscape(text) + ') Tj\nET';
   }
 
-  function savedResultPdfLines(result) {
-    const m = result.metrics || {};
-    const lines = [];
-    lines.push('Extraction Comparator Saved Result');
-    lines.push('');
-    lines.push('Prompt: ' + (result.promptNumber || '-'));
-    lines.push('Paper: ' + (result.paperName || '-'));
-    lines.push('Model: ' + (result.modelName || '-'));
-    lines.push('Threshold: ' + (result.threshold ?? '-') + '%');
-    lines.push('Created: ' + dateForPdf(result.createdAt));
-    lines.push('');
-    lines.push('Metrics');
-    lines.push('Accuracy: ' + pctForPdf(m.accuracy) + ' | F1: ' + pctForPdf(m.f1) + ' | Recall: ' + pctForPdf(m.recall) + ' | Precision: ' + pctForPdf(m.precision));
-    lines.push('Matches: ' + (m.matches ?? 0) + ' | Partials: ' + (m.partials ?? 0) + ' | Misses: ' + (m.misses ?? 0));
-    lines.push('Manual triples: ' + (m.manualCount ?? 0) + ' | LLM triples: ' + (m.llmCount ?? 0));
-    lines.push('Hallucinations: ' + (m.hallucinations ?? 0) + ' (' + pctForPdf(m.hallucinationRate) + ')');
-    lines.push('');
-    lines.push('Prompt Text');
-    wrapPdfText(result.prompt || '-', 92).forEach(line => lines.push(line));
-    lines.push('');
-    lines.push('Manual vs LLM Output');
+  function wrapPdfCell(value, width, fontSize = 7.2, maxLines = 8) {
+    const maxChars = Math.max(6, Math.floor(width / (fontSize * 0.48)));
+    const lines = wrapPdfText(value || '-', maxChars);
+    if (maxLines && lines.length > maxLines) {
+      const clipped = lines.slice(0, maxLines);
+      clipped[maxLines - 1] = clipped[maxLines - 1].slice(0, Math.max(0, maxChars - 3)) + '...';
+      return clipped;
+    }
+    return lines.length ? lines : ['-'];
+  }
 
-    (result.comparison || []).forEach((row, index) => {
+  function buildSavedResultPdf(result) {
+    const pageWidth = 841.89;
+    const pageHeight = 595.28;
+    const margin = 28;
+    const bottom = 34;
+    const tableX = margin;
+    const tableWidth = pageWidth - margin * 2;
+    const headerHeight = 23;
+    const rowPad = 5;
+    const lineGap = 8.8;
+    const bodyFont = 7.2;
+    const columns = [
+      { key:'index', label:'#', width:28 },
+      { key:'manual', label:'Manual extraction', width:270 },
+      { key:'llm', label:'LLM triple', width:230 },
+      { key:'score', label:'Score', width:45 },
+      { key:'status', label:'Status', width:55 },
+      { key:'hallucination', label:'Hallucination', width:67 },
+      { key:'type', label:'Relation type', width:tableWidth - 28 - 270 - 230 - 45 - 55 - 67 },
+    ];
+    const pages = [];
+    let commands = [];
+    let y = pageHeight - margin;
+    let tableStarted = false;
+
+    function addPage() {
+      commands = [];
+      pages.push(commands);
+      y = pageHeight - margin;
+    }
+
+    function drawTextLines(lines, x, top, size = bodyFont, gap = lineGap) {
+      lines.forEach((line, i) => commands.push(pdfText(x, top - i * gap, line, size)));
+    }
+
+    function drawSectionHeader(text) {
+      if (y < bottom + 24) addPage();
+      commands.push('0.04 0.07 0.10 rg');
+      commands.push(pdfText(margin, y, text, 11, 'F2'));
+      y -= 18;
+    }
+
+    function drawTableHeader() {
+      tableStarted = true;
+      const top = y;
+      commands.push('q\n0.93 0.95 0.97 rg\n' + tableX.toFixed(2) + ' ' + (top - headerHeight).toFixed(2) + ' ' + tableWidth.toFixed(2) + ' ' + headerHeight.toFixed(2) + ' re f\nQ');
+      commands.push('0.64 0.69 0.75 RG\n0.5 w');
+      let x = tableX;
+      columns.forEach(col => {
+        commands.push(x.toFixed(2) + ' ' + (top - headerHeight).toFixed(2) + ' ' + col.width.toFixed(2) + ' ' + headerHeight.toFixed(2) + ' re S');
+        commands.push('0.04 0.07 0.10 rg');
+        commands.push(pdfText(x + 4, top - 14, col.label, 7.4, 'F2'));
+        x += col.width;
+      });
+      y -= headerHeight;
+    }
+
+    function ensureSpace(height) {
+      if (y - height < bottom) {
+        addPage();
+        if (tableStarted) drawTableHeader();
+      }
+    }
+
+    function drawRow(row, rowIndex) {
+      const score = Number(row.score);
       const isHallucination = typeof row.hallucination === 'boolean'
         ? row.hallucination
         : row.status === 'miss' && Boolean(row.llm);
-      const score = Number(row.score);
-      const llmTriple = row.llm
+      const manualRel = row.manual?.relRep || '';
+      const manualFact = row.manual?.fact || '';
+      const manualText = manualRel && manualFact ? manualRel + '\n' + manualFact : (manualRel || manualFact || '-');
+      const llmText = row.llm
         ? [row.llm.source, row.llm.relation, row.llm.target].filter(Boolean).join(' -> ')
         : 'No match found';
-      lines.push('');
-      lines.push('#' + (index + 1) + ' | Manual ID: ' + (row.manual?.id || '-') + ' | Status: ' + (row.status || '-') + ' | Score: ' + (Number.isFinite(score) ? (score * 100).toFixed(0) + '%' : '0%') + ' | Hallucination: ' + (isHallucination ? 'Yes' : 'No'));
-      addWrappedPdfLine(lines, 'Manual:', row.manual?.relRep || row.manual?.fact || '-');
-      addWrappedPdfLine(lines, 'Fact:', row.manual?.fact || '-');
-      addWrappedPdfLine(lines, 'LLM:', llmTriple);
-      if (row.manual?.relType) addWrappedPdfLine(lines, 'Relation type:', row.manual.relType);
-    });
+      const cells = {
+        index: String(rowIndex + 1),
+        manual: manualText,
+        llm: llmText,
+        score: Number.isFinite(score) ? (score * 100).toFixed(0) + '%' : '0%',
+        status: row.status || '-',
+        hallucination: isHallucination ? 'Yes' : 'No',
+        type: row.manual?.relType || '-',
+      };
+      const wrapped = {};
+      let maxLines = 1;
+      columns.forEach(col => {
+        const lineLimit = col.key === 'manual' || col.key === 'llm' ? 8 : 3;
+        wrapped[col.key] = wrapPdfCell(cells[col.key], col.width - 8, bodyFont, lineLimit);
+        maxLines = Math.max(maxLines, wrapped[col.key].length);
+      });
+      const rowHeight = Math.max(27, maxLines * lineGap + rowPad * 2);
+      ensureSpace(rowHeight);
+      const top = y;
+      const rowBottom = top - rowHeight;
+      if (isHallucination) {
+        commands.push('q\n1 0.96 0.96 rg\n' + tableX.toFixed(2) + ' ' + rowBottom.toFixed(2) + ' ' + tableWidth.toFixed(2) + ' ' + rowHeight.toFixed(2) + ' re f\nQ');
+      } else if (rowIndex % 2 === 1) {
+        commands.push('q\n0.985 0.988 0.992 rg\n' + tableX.toFixed(2) + ' ' + rowBottom.toFixed(2) + ' ' + tableWidth.toFixed(2) + ' ' + rowHeight.toFixed(2) + ' re f\nQ');
+      }
+      commands.push('0.82 0.86 0.90 RG\n0.4 w');
+      let x = tableX;
+      columns.forEach(col => {
+        commands.push(x.toFixed(2) + ' ' + rowBottom.toFixed(2) + ' ' + col.width.toFixed(2) + ' ' + rowHeight.toFixed(2) + ' re S');
+        const textColor = col.key === 'hallucination' && isHallucination
+          ? '0.70 0.07 0.07 rg'
+          : col.key === 'status' && row.status === 'match'
+            ? '0.05 0.43 0.25 rg'
+            : col.key === 'status' && row.status === 'partial'
+              ? '0.70 0.36 0.03 rg'
+              : col.key === 'status' && row.status === 'miss'
+                ? '0.70 0.07 0.07 rg'
+                : '0.08 0.10 0.14 rg';
+        commands.push(textColor);
+        drawTextLines(wrapped[col.key], x + 4, top - rowPad - bodyFont, bodyFont, lineGap);
+        x += col.width;
+      });
+      y -= rowHeight;
+    }
 
-    return lines;
-  }
+    function createPdfObject(objects, body) {
+      objects.push(body);
+      return objects.length;
+    }
 
-  function buildPdfDocument(lines) {
-    const pageWidth = 595.28;
-    const pageHeight = 841.89;
-    const marginX = 42;
-    const startY = 800;
-    const lineGap = 13;
-    const linesPerPage = Math.floor((startY - 42) / lineGap);
-    const pages = [];
-    for (let i = 0; i < lines.length; i += linesPerPage) pages.push(lines.slice(i, i + linesPerPage));
-    if (!pages.length) pages.push(['No saved result content.']);
+    addPage();
+    commands.push('0.04 0.07 0.10 rg');
+    commands.push(pdfText(margin, y, 'Extraction Comparator Saved Result', 16, 'F2'));
+    y -= 20;
+    const meta = [
+      'Prompt ' + (result.promptNumber || '-'),
+      'Paper: ' + (result.paperName || '-'),
+      'Model: ' + (result.modelName || '-'),
+      'Threshold: ' + (result.threshold ?? '-') + '%',
+      'Created: ' + dateForPdf(result.createdAt),
+    ];
+    wrapPdfText(meta.join(' | '), 138).forEach(line => { commands.push(pdfText(margin, y, line, 8.2)); y -= 11; });
+    y -= 4;
+
+    const m = result.metrics || {};
+    drawSectionHeader('Metrics');
+    const metricsLines = [
+      'Accuracy ' + pctForPdf(m.accuracy) + ' | F1 ' + pctForPdf(m.f1) + ' | Recall ' + pctForPdf(m.recall) + ' | Precision ' + pctForPdf(m.precision),
+      'Matches ' + (m.matches ?? 0) + ' | Partials ' + (m.partials ?? 0) + ' | Misses ' + (m.misses ?? 0) + ' | Hallucinations ' + (m.hallucinations ?? 0) + ' (' + pctForPdf(m.hallucinationRate) + ')',
+      'Manual triples ' + (m.manualCount ?? 0) + ' | LLM triples ' + (m.llmCount ?? 0),
+    ];
+    metricsLines.forEach(line => { commands.push(pdfText(margin, y, line, 8.2)); y -= 11; });
+    y -= 7;
+
+    drawSectionHeader('Prompt Text');
+    wrapPdfCell(result.prompt || '-', tableWidth, 8, 4).forEach(line => { commands.push(pdfText(margin, y, line, 8)); y -= 10; });
+    y -= 10;
+
+    drawSectionHeader('Manual vs LLM Output');
+    drawTableHeader();
+    (result.comparison || []).forEach((row, index) => drawRow(row, index));
 
     const objects = [];
-    const addObject = body => { objects.push(body); return objects.length; };
-    const catalogId = addObject('');
-    const pagesId = addObject('');
-    const fontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    const catalogId = createPdfObject(objects, '');
+    const pagesId = createPdfObject(objects, '');
+    const fontId = createPdfObject(objects, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    const boldFontId = createPdfObject(objects, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
     const pageIds = [];
 
-    pages.forEach((pageLines, pageIndex) => {
-      const commands = ['BT', '/F1 10 Tf', lineGap + ' TL', marginX + ' ' + startY + ' Td'];
-      pageLines.forEach((line, lineIndex) => {
-        if (lineIndex) commands.push('T*');
-        commands.push('(' + pdfEscape(line) + ') Tj');
-      });
-      commands.push('ET');
-      const stream = commands.join('\n');
-      const contentId = addObject('<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream');
-      const footer = 'Page ' + (pageIndex + 1) + ' of ' + pages.length;
-      const footerStream = 'BT\n/F1 9 Tf\n' + marginX + ' 24 Td\n(' + pdfEscape(footer) + ') Tj\nET';
-      const footerId = addObject('<< /Length ' + footerStream.length + ' >>\nstream\n' + footerStream + '\nendstream');
-      const pageId = addObject('<< /Type /Page /Parent ' + pagesId + ' 0 R /MediaBox [0 0 ' + pageWidth + ' ' + pageHeight + '] /Resources << /Font << /F1 ' + fontId + ' 0 R >> >> /Contents [' + contentId + ' 0 R ' + footerId + ' 0 R] >>');
+    pages.forEach((pageCommands, pageIndex) => {
+      const footer = [
+        '0.45 0.49 0.55 rg',
+        pdfText(margin, 18, 'Page ' + (pageIndex + 1) + ' of ' + pages.length, 8),
+      ];
+      const stream = pageCommands.concat(footer).join('\n');
+      const contentId = createPdfObject(objects, '<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream');
+      const pageId = createPdfObject(objects, '<< /Type /Page /Parent ' + pagesId + ' 0 R /MediaBox [0 0 ' + pageWidth + ' ' + pageHeight + '] /Resources << /Font << /F1 ' + fontId + ' 0 R /F2 ' + boldFontId + ' 0 R >> >> /Contents ' + contentId + ' 0 R >>');
       pageIds.push(pageId);
     });
 
@@ -191,10 +299,6 @@ window.App = (() => {
     pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root ' + catalogId + ' 0 R >>\n';
     pdf += 'startxref\n' + xrefOffset + '\n%%EOF';
     return new Blob([pdf], { type: 'application/pdf' });
-  }
-
-  function buildSavedResultPdf(result) {
-    return buildPdfDocument(savedResultPdfLines(result));
   }
 
   // ── File upload handlers — wired first, no API dependency ─────────────────
