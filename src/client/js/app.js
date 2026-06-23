@@ -30,10 +30,171 @@ window.App = (() => {
       .replace(/^-+|-+$/g, '') || 'result';
   }
 
+  function downloadBlob(blob, filename) {
+    const href = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+  }
+
   function downloadJSON(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
-    a.click(); URL.revokeObjectURL(a.href);
+    downloadBlob(blob, filename);
+  }
+
+  function textForPdf(value) {
+    return (value ?? '').toString()
+      .replace(/[‘’]/g, "'")
+      .replace(/[“”]/g, '"')
+      .replace(/[–—]/g, '-')
+      .replace(/→/g, '->')
+      .replace(/✓/g, 'match')
+      .replace(/✗/g, 'miss')
+      .replace(/…/g, '...')
+      .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' ')
+      .replace(/[\t ]+/g, ' ');
+  }
+
+  function pdfEscape(value) {
+    return textForPdf(value).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  }
+
+  function wrapPdfText(value, maxChars = 92) {
+    const paragraphs = textForPdf(value).split(/\r?\n/);
+    const lines = [];
+    paragraphs.forEach(paragraph => {
+      const words = paragraph.trim().split(/\s+/).filter(Boolean);
+      if (!words.length) { lines.push(''); return; }
+      let line = '';
+      words.forEach(word => {
+        if (word.length > maxChars) {
+          if (line) { lines.push(line); line = ''; }
+          for (let i = 0; i < word.length; i += maxChars) lines.push(word.slice(i, i + maxChars));
+          return;
+        }
+        const next = line ? line + ' ' + word : word;
+        if (next.length > maxChars) { lines.push(line); line = word; }
+        else line = next;
+      });
+      if (line) lines.push(line);
+    });
+    return lines;
+  }
+
+  function pctForPdf(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : '0.0%';
+  }
+
+  function dateForPdf(value) {
+    const d = value ? new Date(value) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.toLocaleString() : 'Not recorded';
+  }
+
+  function addWrappedPdfLine(lines, label, value, maxChars = 86) {
+    const wrapped = wrapPdfText(value || '-', maxChars);
+    if (!wrapped.length) { lines.push(label + ' -'); return; }
+    lines.push(label + ' ' + wrapped[0]);
+    wrapped.slice(1).forEach(line => lines.push('  ' + line));
+  }
+
+  function savedResultPdfLines(result) {
+    const m = result.metrics || {};
+    const lines = [];
+    lines.push('Extraction Comparator Saved Result');
+    lines.push('');
+    lines.push('Prompt: ' + (result.promptNumber || '-'));
+    lines.push('Paper: ' + (result.paperName || '-'));
+    lines.push('Model: ' + (result.modelName || '-'));
+    lines.push('Threshold: ' + (result.threshold ?? '-') + '%');
+    lines.push('Created: ' + dateForPdf(result.createdAt));
+    lines.push('');
+    lines.push('Metrics');
+    lines.push('Accuracy: ' + pctForPdf(m.accuracy) + ' | F1: ' + pctForPdf(m.f1) + ' | Recall: ' + pctForPdf(m.recall) + ' | Precision: ' + pctForPdf(m.precision));
+    lines.push('Matches: ' + (m.matches ?? 0) + ' | Partials: ' + (m.partials ?? 0) + ' | Misses: ' + (m.misses ?? 0));
+    lines.push('Manual triples: ' + (m.manualCount ?? 0) + ' | LLM triples: ' + (m.llmCount ?? 0));
+    lines.push('Hallucinations: ' + (m.hallucinations ?? 0) + ' (' + pctForPdf(m.hallucinationRate) + ')');
+    lines.push('');
+    lines.push('Prompt Text');
+    wrapPdfText(result.prompt || '-', 92).forEach(line => lines.push(line));
+    lines.push('');
+    lines.push('Manual vs LLM Output');
+
+    (result.comparison || []).forEach((row, index) => {
+      const isHallucination = typeof row.hallucination === 'boolean'
+        ? row.hallucination
+        : row.status === 'miss' && Boolean(row.llm);
+      const score = Number(row.score);
+      const llmTriple = row.llm
+        ? [row.llm.source, row.llm.relation, row.llm.target].filter(Boolean).join(' -> ')
+        : 'No match found';
+      lines.push('');
+      lines.push('#' + (index + 1) + ' | Manual ID: ' + (row.manual?.id || '-') + ' | Status: ' + (row.status || '-') + ' | Score: ' + (Number.isFinite(score) ? (score * 100).toFixed(0) + '%' : '0%') + ' | Hallucination: ' + (isHallucination ? 'Yes' : 'No'));
+      addWrappedPdfLine(lines, 'Manual:', row.manual?.relRep || row.manual?.fact || '-');
+      addWrappedPdfLine(lines, 'Fact:', row.manual?.fact || '-');
+      addWrappedPdfLine(lines, 'LLM:', llmTriple);
+      if (row.manual?.relType) addWrappedPdfLine(lines, 'Relation type:', row.manual.relType);
+    });
+
+    return lines;
+  }
+
+  function buildPdfDocument(lines) {
+    const pageWidth = 595.28;
+    const pageHeight = 841.89;
+    const marginX = 42;
+    const startY = 800;
+    const lineGap = 13;
+    const linesPerPage = Math.floor((startY - 42) / lineGap);
+    const pages = [];
+    for (let i = 0; i < lines.length; i += linesPerPage) pages.push(lines.slice(i, i + linesPerPage));
+    if (!pages.length) pages.push(['No saved result content.']);
+
+    const objects = [];
+    const addObject = body => { objects.push(body); return objects.length; };
+    const catalogId = addObject('');
+    const pagesId = addObject('');
+    const fontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    const pageIds = [];
+
+    pages.forEach((pageLines, pageIndex) => {
+      const commands = ['BT', '/F1 10 Tf', lineGap + ' TL', marginX + ' ' + startY + ' Td'];
+      pageLines.forEach((line, lineIndex) => {
+        if (lineIndex) commands.push('T*');
+        commands.push('(' + pdfEscape(line) + ') Tj');
+      });
+      commands.push('ET');
+      const stream = commands.join('\n');
+      const contentId = addObject('<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream');
+      const footer = 'Page ' + (pageIndex + 1) + ' of ' + pages.length;
+      const footerStream = 'BT\n/F1 9 Tf\n' + marginX + ' 24 Td\n(' + pdfEscape(footer) + ') Tj\nET';
+      const footerId = addObject('<< /Length ' + footerStream.length + ' >>\nstream\n' + footerStream + '\nendstream');
+      const pageId = addObject('<< /Type /Page /Parent ' + pagesId + ' 0 R /MediaBox [0 0 ' + pageWidth + ' ' + pageHeight + '] /Resources << /Font << /F1 ' + fontId + ' 0 R >> >> /Contents [' + contentId + ' 0 R ' + footerId + ' 0 R] >>');
+      pageIds.push(pageId);
+    });
+
+    objects[catalogId - 1] = '<< /Type /Catalog /Pages ' + pagesId + ' 0 R >>';
+    objects[pagesId - 1] = '<< /Type /Pages /Kids [' + pageIds.map(id => id + ' 0 R').join(' ') + '] /Count ' + pageIds.length + ' >>';
+
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    objects.forEach((body, index) => {
+      offsets.push(pdf.length);
+      pdf += (index + 1) + ' 0 obj\n' + body + '\nendobj\n';
+    });
+    const xrefOffset = pdf.length;
+    pdf += 'xref\n0 ' + (objects.length + 1) + '\n';
+    pdf += '0000000000 65535 f \n';
+    offsets.slice(1).forEach(offset => { pdf += String(offset).padStart(10, '0') + ' 00000 n \n'; });
+    pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root ' + catalogId + ' 0 R >>\n';
+    pdf += 'startxref\n' + xrefOffset + '\n%%EOF';
+    return new Blob([pdf], { type: 'application/pdf' });
+  }
+
+  function buildSavedResultPdf(result) {
+    return buildPdfDocument(savedResultPdfLines(result));
   }
 
   // ── File upload handlers — wired first, no API dependency ─────────────────
@@ -147,9 +308,9 @@ window.App = (() => {
       'prompt-' + filePart(normalized.promptNumber),
       filePart(normalized.paperName),
       filePart(normalized.modelName),
-    ].filter(Boolean).join('_') + '.json';
-    downloadJSON(normalized, filename);
-    Render.toast(`Downloaded Prompt ${normalized.promptNumber}.`);
+    ].filter(Boolean).join('_') + '.pdf';
+    downloadBlob(buildSavedResultPdf(normalized), filename);
+    Render.toast(`Downloaded PDF for Prompt ${normalized.promptNumber}.`);
   }
 
   async function deleteSavedResult(id) {
