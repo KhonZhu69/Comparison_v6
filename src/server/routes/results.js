@@ -46,35 +46,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
-  const { promptNumber, title, paperName, modelName, prompt, threshold, metrics, comparison } = req.body;
-  if (!prompt || !metrics) {
-    return res.status(400).json({ error: 'prompt and metrics are required.' });
-  }
-  try {
-    const { rows } = await pool.query(
-      `UPDATE prompt_results
-          SET prompt_number = $1,
-              title         = $2,
-              paper_name    = $3,
-              model_name    = $4,
-              prompt        = $5,
-              threshold     = $6,
-              metrics       = $7,
-              comparison    = $8
-        WHERE id = $9
-        RETURNING ${resultFields}`,
-      [promptNumber||'', title||`Prompt ${promptNumber||''}`, paperName||'', modelName||'',
-       prompt, threshold||60, JSON.stringify(metrics), JSON.stringify(comparison||[]), req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Result not found.' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('PUT /api/results/:id error:', err.message);
-    res.status(500).json({ error: 'Failed to update result.' });
-  }
-});
-
 router.delete('/:id', async (req, res) => {
   try {
     const { rowCount } = await pool.query('DELETE FROM prompt_results WHERE id = $1', [req.params.id]);
