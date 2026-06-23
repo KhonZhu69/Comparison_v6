@@ -150,6 +150,17 @@ window.App = (() => {
       y -= 18;
     }
 
+    function drawWrappedBlock(text, maxChars = 138, size = 8, gap = 10, continuedHeader = null) {
+      wrapPdfText(text || '-', maxChars).forEach(line => {
+        if (y < bottom + gap + 2) {
+          addPage();
+          if (continuedHeader) drawSectionHeader(continuedHeader);
+        }
+        commands.push(pdfText(margin, y, line, size));
+        y -= gap;
+      });
+    }
+
     function drawTableHeader() {
       tableStarted = true;
       const top = y;
@@ -258,7 +269,7 @@ window.App = (() => {
     y -= 7;
 
     drawSectionHeader('Prompt Text');
-    wrapPdfCell(result.prompt || '-', tableWidth, 8, 4).forEach(line => { commands.push(pdfText(margin, y, line, 8)); y -= 10; });
+    drawWrappedBlock(result.prompt || '-', 138, 8, 10, 'Prompt Text (continued)');
     y -= 10;
 
     drawSectionHeader('Manual vs LLM Output');
