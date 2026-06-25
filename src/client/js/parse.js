@@ -54,8 +54,12 @@ window.Parse = (() => {
   async function docx(ab) {
     const zip    = await readZip(ab);
     const xmlStr = zip.get('word/document.xml');
-    if (!xmlStr) throw new Error('Could not find word/document.xml inside DOCX.');
-    return parseDocxXML(xmlStr);
+    if (xmlStr) return parseDocxXML(xmlStr);
+
+    const text = new TextDecoder('utf-8').decode(ab);
+    const rows = manualCsv(text);
+    if (rows.length) return rows;
+    throw new Error('Could not read manual extraction file. Use a DOCX table or CSV graph export.');
   }
 
   // ── CSV ───────────────────────────────────────────────────────────────────
