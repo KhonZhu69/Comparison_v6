@@ -63,10 +63,8 @@ window.Parse = (() => {
   }
 
   // ── CSV ───────────────────────────────────────────────────────────────────
-  // Detects two graph formats:
-  //   1. Standard tabular CSV with headers: source, source_type, relation, target, target_type
-  //   2. Neo4j path export — single column "p" with rows like:
-  //      (:Label {name: X, type: Y})-[:REL {kind: Z}]->(:Label {name: A, type: B})
+  // Detects graph CSVs with source/relation/target columns, Neo4j path columns,
+  // and Neo4j Browser triples such as n,r,m or start,relationship,end.
 
   function parseCsvRows(text) {
     const rows = [];
@@ -97,19 +95,37 @@ window.Parse = (() => {
     return (value || '').toString().trim().replace(/^"|"$/g, '').toLowerCase();
   }
 
+  function compactKey(value) {
+    return headerKey(value).replace(/[^a-z0-9]/g, '');
+  }
+
+  function cleanGraphValue(value) {
+    return (value || '').toString().trim().replace(/^"|"$/g, '').replace(/^['"]|['"]$/g, '').trim();
+  }
+
+  function pick(obj, aliases) {
+    for (const alias of aliases) {
+      if (obj[alias]) return obj[alias];
+    }
+    return '';
+  }
+
   function parseNeo4jNode(block) {
-    const name = block.match(/name:\s*([^,}]+)/);
-    const type = block.match(/\btype:\s*([^,}]+)/);
+    const raw = cleanGraphValue(block);
+    const name = raw.match(/(?:name|title|id|value):\s*['"]?([^,'"}]+)['"]?/i);
+    const type = raw.match(/\b(?:type|label|category):\s*['"]?([^,'"}]+)['"]?/i);
+    const label = raw.match(/^\s*:?([A-Za-z][\w]*)\s*\{/);
     return {
-      name: name ? name[1].trim().replace(/^['"]|['"]$/g, '') : '',
-      type: type ? type[1].trim().replace(/^['"]|['"]$/g, '') : '',
+      name: name ? cleanGraphValue(name[1]) : raw.replace(/^\([^{}]*\{?|\}\)?$/g, '').trim(),
+      type: type ? cleanGraphValue(type[1]) : (label ? cleanGraphValue(label[1]) : ''),
     };
   }
 
   function parseNeo4jRel(block) {
-    const kind    = block.match(/kind:\s*([^,}]+)/);
-    const relType = block.match(/\[:(\w+)/);
-    return kind ? kind[1].trim().replace(/^['"]|['"]$/g, '') : (relType ? relType[1].trim() : '');
+    const raw = cleanGraphValue(block);
+    const kind = raw.match(/(?:kind|name|type|label):\s*['"]?([^,'"}]+)['"]?/i);
+    const relType = raw.match(/\[:?([A-Za-z][\w-]*)/);
+    return kind ? cleanGraphValue(kind[1]) : (relType ? cleanGraphValue(relType[1]) : raw);
   }
 
   function parseNeo4jPath(line) {
@@ -123,22 +139,49 @@ window.Parse = (() => {
     return { source: src.name, source_type: src.type, relation: rel, target: tgt.name, target_type: tgt.type };
   }
 
+  function parseGraphCellTriple(values, header) {
+    const obj = {};
+    header.forEach((h, i) => { obj[compactKey(h)] = cleanGraphValue(values[i] || ''); });
+
+    const path = pick(obj, ['p', 'path', 'paths']);
+    if (path) {
+      const parsed = parseNeo4jPath(path);
+      if (parsed) return parsed;
+    }
+
+    let source = pick(obj, ['source', 'sourcename', 'sourcenode', 'start', 'startnode', 'from', 'subject', 'head', 'n', 'node1']);
+    let target = pick(obj, ['target', 'targetname', 'targetnode', 'end', 'endnode', 'to', 'object', 'tail', 'm', 'node2']);
+    let relation = pick(obj, ['relation', 'relationship', 'relationshiptype', 'rel', 'predicate', 'edge', 'kind', 'r']);
+    let sourceType = pick(obj, ['sourcetype', 'sourcelabel', 'sourcelabels', 'starttype', 'fromtype', 'subjecttype']);
+    let targetType = pick(obj, ['targettype', 'targetlabel', 'targetlabels', 'endtype', 'totype', 'objecttype']);
+
+    if (!source && values.length >= 3) source = cleanGraphValue(values[0]);
+    if (!relation && values.length >= 3) relation = cleanGraphValue(values[1]);
+    if (!target && values.length >= 3) target = cleanGraphValue(values[2]);
+
+    if (/^\(?\s*:?[A-Za-z][\w]*\s*\{/.test(source)) {
+      const node = parseNeo4jNode(source);
+      source = node.name;
+      sourceType = sourceType || node.type;
+    }
+    if (/^\(?\s*:?[A-Za-z][\w]*\s*\{/.test(target)) {
+      const node = parseNeo4jNode(target);
+      target = node.name;
+      targetType = targetType || node.type;
+    }
+    if (/^\[/.test(relation)) relation = parseNeo4jRel(relation);
+
+    if (!source && !relation && !target) return null;
+    return { source, source_type: sourceType, relation, target, target_type: targetType };
+  }
+
   function graphRowsFromCsv(text) {
     const rows = parseCsvRows(text);
     if (rows.length < 2) return [];
     const header = rows[0].map(headerKey);
-
-    if (header.length === 1 && header[0] === 'p') {
-      return rows.slice(1)
-        .map(row => parseNeo4jPath((row[0] || '').replace(/^"|"$/g, '')))
-        .filter(Boolean);
-    }
-
-    return rows.slice(1).map(values => {
-      const obj = {};
-      header.forEach((h, i) => { obj[h] = (values[i] || '').replace(/^"|"$/g, '').trim(); });
-      return obj;
-    }).filter(r => r.source || r.relation || r.target);
+    return rows.slice(1)
+      .map(values => parseGraphCellTriple(values, header))
+      .filter(r => r && (r.source || r.relation || r.target));
   }
 
   function csv(text) {
@@ -154,13 +197,13 @@ window.Parse = (() => {
     if (directManual) {
       return rows.slice(1).map((values, i) => {
         const obj = {};
-        header.forEach((h, idx) => { obj[h] = (values[idx] || '').replace(/^"|"$/g, '').trim(); });
+        header.forEach((h, idx) => { obj[compactKey(h)] = cleanGraphValue(values[idx] || ''); });
         return {
-          id: obj.id || obj['fact id'] || String(i + 1),
-          fact: obj.fact || obj['fact identification'] || obj.sentence || '',
-          relId: obj.relid || obj['relationship id'] || '',
-          relRep: obj.relrep || obj.representation || obj['relationship representation'] || '',
-          relType: obj.reltype || obj.type || obj['relation type'] || '',
+          id: obj.id || obj.factid || String(i + 1),
+          fact: obj.fact || obj.factidentification || obj.sentence || '',
+          relId: obj.relid || obj.relationshipid || '',
+          relRep: obj.relrep || obj.representation || obj.relationshiprepresentation || '',
+          relType: obj.reltype || obj.type || obj.relationtype || '',
         };
       }).filter(r => r.fact || r.relRep);
     }
