@@ -1,7 +1,8 @@
 // src/client/js/parse.js
 // Parses uploaded DOCX and CSV files entirely in the browser.
-// Exposes: window.Parse.docx(arrayBuffer) → rows[]
-//          window.Parse.csv(text)          → rows[]
+// Exposes: window.Parse.docx(arrayBuffer)      -> manual rows[]
+//          window.Parse.csv(text)              -> LLM rows[]
+//          window.Parse.manualCsv(text)        -> manual rows[]
 
 window.Parse = (() => {
 
@@ -58,28 +59,56 @@ window.Parse = (() => {
   }
 
   // ── CSV ───────────────────────────────────────────────────────────────────
-  // Detects two formats:
+  // Detects two graph formats:
   //   1. Standard tabular CSV with headers: source, source_type, relation, target, target_type
   //   2. Neo4j path export — single column "p" with rows like:
   //      (:Label {name: X, type: Y})-[:REL {kind: Z}]->(:Label {name: A, type: B})
+
+  function parseCsvRows(text) {
+    const rows = [];
+    let row = [];
+    let cur = '';
+    let inQ = false;
+    const input = (text || '').replace(/^\uFEFF/, '');
+
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+      const next = input[i + 1];
+      if (ch === '"' && inQ && next === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { row.push(cur.trim()); cur = ''; }
+      else if ((ch === '\n' || ch === '\r') && !inQ) {
+        if (ch === '\r' && next === '\n') i++;
+        row.push(cur.trim());
+        if (row.some(v => v.trim())) rows.push(row);
+        row = []; cur = '';
+      } else { cur += ch; }
+    }
+    row.push(cur.trim());
+    if (row.some(v => v.trim())) rows.push(row);
+    return rows;
+  }
+
+  function headerKey(value) {
+    return (value || '').toString().trim().replace(/^"|"$/g, '').toLowerCase();
+  }
 
   function parseNeo4jNode(block) {
     const name = block.match(/name:\s*([^,}]+)/);
     const type = block.match(/\btype:\s*([^,}]+)/);
     return {
-      name: name ? name[1].trim() : '',
-      type: type ? type[1].trim() : '',
+      name: name ? name[1].trim().replace(/^['"]|['"]$/g, '') : '',
+      type: type ? type[1].trim().replace(/^['"]|['"]$/g, '') : '',
     };
   }
 
   function parseNeo4jRel(block) {
     const kind    = block.match(/kind:\s*([^,}]+)/);
     const relType = block.match(/\[:(\w+)/);
-    return kind ? kind[1].trim() : (relType ? relType[1].trim() : '');
+    return kind ? kind[1].trim().replace(/^['"]|['"]$/g, '') : (relType ? relType[1].trim() : '');
   }
 
   function parseNeo4jPath(line) {
-    // Pull all node blocks (...) and relationship blocks [...]
     const nodeBlocks = [...line.matchAll(/\(([^)]+)\)/g)].map(m => m[1]);
     const relBlocks  = [...line.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
     if (nodeBlocks.length < 2 || relBlocks.length < 1) return null;
@@ -90,36 +119,61 @@ window.Parse = (() => {
     return { source: src.name, source_type: src.type, relation: rel, target: tgt.name, target_type: tgt.type };
   }
 
-  function csv(text) {
-    const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) return [];
+  function graphRowsFromCsv(text) {
+    const rows = parseCsvRows(text);
+    if (rows.length < 2) return [];
+    const header = rows[0].map(headerKey);
 
-    const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-
-    // ── Neo4j path format (single column "p") ─────────────────────────────
     if (header.length === 1 && header[0] === 'p') {
-      return lines.slice(1)
-        .map(line => parseNeo4jPath(line.replace(/^"|"$/g, '')))
+      return rows.slice(1)
+        .map(row => parseNeo4jPath((row[0] || '').replace(/^"|"$/g, '')))
         .filter(Boolean);
     }
 
-    // ── Standard tabular CSV ───────────────────────────────────────────────
-    return lines.slice(1).map(line => {
-      // Handle quoted fields that may contain commas
-      const vals = [];
-      let cur = '', inQ = false;
-      for (const ch of line) {
-        if (ch === '"') { inQ = !inQ; }
-        else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
-        else { cur += ch; }
-      }
-      vals.push(cur.trim());
-
+    return rows.slice(1).map(values => {
       const obj = {};
-      header.forEach((h, i) => { obj[h] = (vals[i] || '').replace(/^"|"$/g, '').trim(); });
+      header.forEach((h, i) => { obj[h] = (values[i] || '').replace(/^"|"$/g, '').trim(); });
       return obj;
     }).filter(r => r.source || r.relation || r.target);
   }
 
-  return { docx, csv };
+  function csv(text) {
+    return graphRowsFromCsv(text);
+  }
+
+  function manualCsv(text) {
+    const rows = parseCsvRows(text);
+    if (rows.length < 2) return [];
+    const header = rows[0].map(headerKey);
+
+    const directManual = header.some(h => ['relrep', 'representation', 'relationship representation'].includes(h));
+    if (directManual) {
+      return rows.slice(1).map((values, i) => {
+        const obj = {};
+        header.forEach((h, idx) => { obj[h] = (values[idx] || '').replace(/^"|"$/g, '').trim(); });
+        return {
+          id: obj.id || obj['fact id'] || String(i + 1),
+          fact: obj.fact || obj['fact identification'] || obj.sentence || '',
+          relId: obj.relid || obj['relationship id'] || '',
+          relRep: obj.relrep || obj.representation || obj['relationship representation'] || '',
+          relType: obj.reltype || obj.type || obj['relation type'] || '',
+        };
+      }).filter(r => r.fact || r.relRep);
+    }
+
+    return graphRowsFromCsv(text).map((r, i) => {
+      const source = r.source || '';
+      const relation = r.relation || '';
+      const target = r.target || '';
+      return {
+        id: String(i + 1),
+        fact: [source, relation, target].filter(Boolean).join(' '),
+        relId: relation,
+        relRep: `${source} → [${relation}] → ${target}`,
+        relType: r.target_type || r.source_type || relation,
+      };
+    }).filter(r => r.relRep.replace(/[\s→\[\]]/g, ''));
+  }
+
+  return { docx, csv, manualCsv };
 })();
