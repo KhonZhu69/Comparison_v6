@@ -13,7 +13,7 @@
   <div class="header-logo">KG</div>
   <div>
     <div class="header-title">Extraction Comparator</div>
-    <div class="header-sub">Manual DOCX vs LLM CSV — Prompt testing database</div>
+    <div class="header-sub">Manual DOCX/CSV vs LLM CSV — Prompt testing database</div>
   </div>
   <div id="dbStatus" class="db-status wait"><span class="db-dot"></span>Connecting…</div>
   <span class="header-badge">Saved Results: <span id="headerSavedCount">0</span></span>
@@ -26,12 +26,12 @@
     <label class="upload-card" id="docxZone">
       <div class="upload-icon manual">M</div>
       <div class="upload-text">
-        <div class="label">Manual Extraction DOCX</div>
-        <div class="desc">Upload manual facts table with Fact ID, Relationship, Representation and Type columns.</div>
+        <div class="label">Manual Extraction DOCX / CSV</div>
+        <div class="desc">Upload a manual facts DOCX table or a graph CSV with source → relation → target triples.</div>
         <div class="filename" id="docxName">No file selected — click to browse</div>
-        <div class="format">Accepted: .docx</div>
+        <div class="format">Accepted: .docx, .doc, .csv</div>
       </div>
-      <input type="file" id="docxInput" accept=".docx,.doc" />
+      <input type="file" id="docxInput" accept=".docx,.doc,.csv" />
     </label>
     <label class="upload-card" id="csvZone">
       <div class="upload-icon llm">L</div>
@@ -142,7 +142,7 @@
 
   <!-- ── Panel: Manual preview ── -->
   <div class="panel" id="panel-manual">
-    <div id="manualTableWrap"><div class="empty">Upload a DOCX file to preview manual extraction.</div></div>
+    <div id="manualTableWrap"><div class="empty">Upload a DOCX or CSV file to preview manual extraction.</div></div>
   </div>
 
   <!-- ── Panel: LLM preview ── -->
