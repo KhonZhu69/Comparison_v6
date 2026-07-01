@@ -1,0 +1,91 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 1739 >>
+stream
+BT
+/F1 10 Tf
+50 800 Td
+13 TL
+(Extraction Comparator Calculation Methodology) Tj
+T*
+(Input: manual triples are compared with LLM triples.) Tj
+T*
+(Manual triple shape: source -> [relation] -> target.) Tj
+T*
+(LLM row shape: source, source_type, relation, target, target_type.) Tj
+T*
+(Text is normalised: lowercase, remove punctuation, split into words.) Tj
+T*
+(Word similarity uses Jaccard = shared words / total unique words.) Tj
+T*
+(Source score compares manual source with LLM source.) Tj
+T*
+(Relation score compares manual relation with LLM relation.) Tj
+T*
+(Target score compares manual target with LLM target.) Tj
+T*
+(Triple score = source score x 0.4 + relation score x 0.2 + target score x 0.4.) Tj
+T*
+(For each manual row, the system chooses the LLM row with the highest triple score.) Tj
+T*
+(Threshold example: 60 percent means match cutoff is 0.60.) Tj
+T*
+(Partial cutoff = threshold x 0.5. With 60 percent threshold, partial cutoff is 30 percent.) Tj
+T*
+(If score >= threshold: Match.) Tj
+T*
+(If score >= partial cutoff and below threshold: Partial.) Tj
+T*
+(If score is below partial cutoff: Miss.) Tj
+T*
+(Partial matches receive half credit.) Tj
+T*
+(TP = matches + partials x 0.5.) Tj
+T*
+(FP = max of LLM count minus TP, or 0.) Tj
+T*
+(FN = misses + partials x 0.5.) Tj
+T*
+(Precision = TP / TP plus FP.) Tj
+T*
+(Recall = TP / TP plus FN.) Tj
+T*
+(F1 = 2 x precision x recall / precision plus recall.) Tj
+T*
+(Accuracy = TP / manual count.) Tj
+T*
+(Hallucinations = rounded FP.) Tj
+T*
+(Hallucination rate = FP / LLM count.) Tj
+T*
+(Best saved result ranks by F1, accuracy, precision, recall, then lower hallucination rate.) Tj
+T*
+(In simple words: it rewards correct matches, gives partial credit, and penalises extra LLM triples.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000185 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2102
+%%EOF
